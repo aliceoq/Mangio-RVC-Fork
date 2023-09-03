@@ -47,6 +47,19 @@ except (ValueError, TypeError, IndexError):
     DoFormant, Quefrency, Timbre = False, 1.0, 1.0
     CSVutil('csvdb/formanting.csv', 'w+', 'formanting', DoFormant, Quefrency, Timbre)
 
+def download_models():
+    # Download hubert base model if not present
+    if not os.path.isfile('./hubert_base.pt'):
+        response = requests.get('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt')
+
+        if response.status_code == 200:
+            with open('./hubert_base.pt', 'wb') as f:
+                f.write(response.content)
+            print("Downloaded hubert base model file successfully. File saved to ./hubert_base.pt.")
+        else:
+            raise Exception("Failed to download hubert base model file. Status code: " + str(response.status_code) + ".")
+
+download_models()
 
 # Check if we're in a Google Colab environment
 if os.path.exists('/content/'):
