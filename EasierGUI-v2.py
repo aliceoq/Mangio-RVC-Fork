@@ -594,7 +594,7 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                     with gr.Row():
                         input_audio0 = gr.Dropdown(
                             label="2.Choose your audio.",
-                            value="./audios/someguy.mp3",
+                            value="./audios/oi_eu_sou_o_goku.m4a",
                             choices=audio_files
                             )
                         dropbox.upload(fn=save_to_wav2, inputs=[dropbox], outputs=[input_audio0])
