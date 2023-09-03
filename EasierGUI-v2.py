@@ -27,8 +27,11 @@ import math
 
 from my_utils import load_audio, CSVutil
 
-global DoFormant, Quefrency, Timbre
+DoFormant = False
+Quefrency = 1.0
+Timbre = 1.0
 
+# essa parte excluir dps
 if not os.path.isdir('csvdb/'):
     os.makedirs('csvdb')
     frmnt, stp = open("csvdb/formanting.csv", 'w'), open("csvdb/stop.csv", 'w')
@@ -44,7 +47,6 @@ except (ValueError, TypeError, IndexError):
     DoFormant, Quefrency, Timbre = False, 1.0, 1.0
     CSVutil('csvdb/formanting.csv', 'w+', 'formanting', DoFormant, Quefrency, Timbre)
 
-#from MDXNet import MDXNetDereverb
 
 # Check if we're in a Google Colab environment
 if os.path.exists('/content/'):
@@ -74,93 +76,6 @@ if os.path.exists('/content/'):
 else:
     print("\n-------------------------------\nRVC v2 Easy GUI (Local Edition)\n-------------------------------\n")
     print("-------------------------------\nNot running on Google Colab, skipping download.")
-
-def formant_apply(qfrency, tmbre):
-    Quefrency = qfrency
-    Timbre = tmbre
-    DoFormant = True
-    CSVutil('csvdb/formanting.csv', 'w+', 'formanting', DoFormant, qfrency, tmbre)
-    
-    return ({"value": Quefrency, "__type__": "update"}, {"value": Timbre, "__type__": "update"})
-
-def get_fshift_presets():
-    fshift_presets_list = []
-    for dirpath, _, filenames in os.walk("./formantshiftcfg/"):
-        for filename in filenames:
-            if filename.endswith(".txt"):
-                fshift_presets_list.append(os.path.join(dirpath,filename).replace('\\','/'))
-                
-    if len(fshift_presets_list) > 0:
-        return fshift_presets_list
-    else:
-        return ''
-
-
-
-def formant_enabled(cbox, qfrency, tmbre, frmntapply, formantpreset, formant_refresh_button):
-    
-    if (cbox):
-
-        DoFormant = True
-        CSVutil('csvdb/formanting.csv', 'w+', 'formanting', DoFormant, qfrency, tmbre)
-        #print(f"is checked? - {cbox}\ngot {DoFormant}")
-        
-        return (
-            {"value": True, "__type__": "update"},
-            {"visible": True, "__type__": "update"},
-            {"visible": True, "__type__": "update"},
-            {"visible": True, "__type__": "update"},
-            {"visible": True, "__type__": "update"},
-            {"visible": True, "__type__": "update"},
-        )
-        
-        
-    else:
-        
-        DoFormant = False
-        CSVutil('csvdb/formanting.csv', 'w+', 'formanting', DoFormant, qfrency, tmbre)
-        
-        #print(f"is checked? - {cbox}\ngot {DoFormant}")
-        return (
-            {"value": False, "__type__": "update"},
-            {"visible": False, "__type__": "update"},
-            {"visible": False, "__type__": "update"},
-            {"visible": False, "__type__": "update"},
-            {"visible": False, "__type__": "update"},
-            {"visible": False, "__type__": "update"},
-            {"visible": False, "__type__": "update"},
-        )
-        
-
-
-def preset_apply(preset, qfer, tmbr):
-    if str(preset) != '':
-        with open(str(preset), 'r') as p:
-            content = p.readlines()
-            qfer, tmbr = content[0].split('\n')[0], content[1]
-            
-            formant_apply(qfer, tmbr)
-    else:
-        pass
-    return ({"value": qfer, "__type__": "update"}, {"value": tmbr, "__type__": "update"})
-
-def update_fshift_presets(preset, qfrency, tmbre):
-    
-    qfrency, tmbre = preset_apply(preset, qfrency, tmbre)
-    
-    if (str(preset) != ''):
-        with open(str(preset), 'r') as p:
-            content = p.readlines()
-            qfrency, tmbre = content[0].split('\n')[0], content[1]
-            
-            formant_apply(qfrency, tmbre)
-    else:
-        pass
-    return (
-        {"choices": get_fshift_presets(), "__type__": "update"},
-        {"value": qfrency, "__type__": "update"},
-        {"value": tmbre, "__type__": "update"},
-    )
 
 i18n = I18nAuto()
 #i18n.print()
@@ -257,8 +172,6 @@ for root, dirs, files in os.walk(index_root, topdown=False):
         if name.endswith(".index") and "trained" not in name:
             index_paths.append("%s/%s" % (root, name))
 
-
-
 def vc_single(
     sid,
     input_audio_path,
@@ -320,7 +233,7 @@ def vc_single(
             rms_mix_rate,
             version,
             protect,
-            crepe_hop_length,
+            0,
             f0_file=f0_file,
         )
         if resample_sr >= 16000 and tgt_sr != resample_sr:
@@ -341,7 +254,6 @@ def vc_single(
         print(info)
         return info, (None, None)
 
-# 一个选项卡全局只能有一个音色
 def get_vc(sid):
     global n_spk, tgt_sr, net_g, vc, cpt, version
     if sid == "" or sid == []:
@@ -402,7 +314,6 @@ def get_vc(sid):
     n_spk = cpt["config"][-3]
     return {"visible": False, "maximum": n_spk, "__type__": "update"}
 
-
 def change_choices():
     names = []
     for name in os.listdir(weight_root):
@@ -418,17 +329,14 @@ def change_choices():
         "__type__": "update",
     }
 
-
 def clean():
     return {"value": "", "__type__": "update"}
-
 
 sr_dict = {
     "32k": 32000,
     "40k": 40000,
     "48k": 48000,
 }
-
 
 def if_done(done, p):
     while 1:
@@ -437,7 +345,6 @@ def if_done(done, p):
         else:
             break
     done[0] = True
-
 
 def if_done_multi(done, ps):
     while 1:
@@ -453,8 +360,6 @@ def if_done_multi(done, ps):
             break
     done[0] = True
 
-
-# but2.click(extract_f0,[gpus6,np7,f0method8,if_f0_3,trainset_dir4],[info2])
 def extract_f0_feature(gpus, n_p, f0method, if_f0, exp_dir, version19, echl):
     gpus = gpus.split("-")
     os.makedirs("%s/logs/%s" % (now_dir, exp_dir), exist_ok=True)
@@ -540,32 +445,11 @@ def extract_f0_feature(gpus, n_p, f0method, if_f0, exp_dir, version19, echl):
     print(log)
     yield log
 
-global log_interval
-
-def set_log_interval(exp_dir, batch_size12):
-    log_interval = 1
-
-    folder_path = os.path.join(exp_dir, "1_16k_wavs")
-
-    if os.path.exists(folder_path) and os.path.isdir(folder_path):
-        wav_files = [f for f in os.listdir(folder_path) if f.endswith(".wav")]
-        if wav_files:
-            sample_size = len(wav_files)
-            log_interval = math.ceil(sample_size / batch_size12)
-            if log_interval > 1:
-                log_interval += 1
-    return log_interval
-
-
 def whethercrepeornah(radio):
     mango = True if radio == 'mangio-crepe' or radio == 'mangio-crepe-tiny' else False
     return ({"visible": mango, "__type__": "update"})
 
-from lib.infer_pack.models_onnx import SynthesizerTrnMsNSFsidM
-
-
 #region RVC WebUI App
-
 def change_choices2():
     audio_files=[]
     for filename in os.listdir("./audios"):
@@ -598,12 +482,6 @@ def get_indexes():
                 indexes_list.append(os.path.join(dirpath,filename))
     if len(indexes_list) > 0:
         return indexes_list
-    else:
-        return ''
-        
-def get_name():
-    if len(audio_files) > 0:
-        return sorted(audio_files)[0]
     else:
         return ''
         
@@ -680,36 +558,6 @@ def download_from_url(url, model):
         return "Success."
     except:
         return "There's been an error."
-def success_message(face):
-    return f'{face.name} has been uploaded.', 'None'
-eleven_voices = ['Adam','Antoni','Josh','Arnold','Sam','Bella','Rachel','Domi','Elli']
-eleven_voices_ids=['pNInz6obpgDQGcFmaJgB','ErXwobaYiN019PkySvjV','TxGEqnHWrfWFTfGW9XjX','VR6AewLTigWG4xSOukaG','yoZ06aMxZJJ28mfd3POQ','EXAVITQu4vr4xnSDxMaL','21m00Tcm4TlvDq8ikWAM','AZnzlk1XvdvUeBnXmlld','MF3mGyEYCl7XYWbV9V6O']
-chosen_voice = dict(zip(eleven_voices, eleven_voices_ids))
-
-def stoptraining(mim): 
-    if int(mim) == 1:
-        try:
-            CSVutil('csvdb/stop.csv', 'w+', 'stop', 'True')
-            os.kill(PID, signal.SIGTERM)
-        except Exception as e:
-            print(f"Couldn't click due to {e}")
-    return (
-        {"visible": False, "__type__": "update"}, 
-        {"visible": True, "__type__": "update"},
-    )   
-    
-def zip_downloader(model):
-    if not os.path.exists(f'./weights/{model}.pth'):
-        return {"__type__": "update"}, f'Make sure the Voice Name is correct. I could not find {model}.pth'
-    index_found = False
-    for file in os.listdir(f'./logs/{model}'):
-        if file.endswith('.index') and 'added' in file:
-            log_file = file
-            index_found = True
-    if index_found:
-        return [f'./weights/{model}.pth', f'./logs/{model}/{log_file}'], "Done"
-    else:
-        return f'./weights/{model}.pth', "Could not find Index file."
 
 with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
     with gr.Tabs():        
@@ -721,8 +569,7 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                 refresh_button = gr.Button("Refresh", variant="primary")
                 if check_for_name() != '':
                     get_vc(sorted(names)[0])
-                vc_transform0 = gr.Number(label="Optional: You can change the pitch here or leave it at 0.", value=0)
-                #clean_button = gr.Button(i18n("卸载音色省显存"), variant="primary")
+                vc_transform0 = gr.Number(label="Optional: You can change the pitch here or leave it at 0.", value=0, visible=False)
                 spk_item = gr.Slider(
                     minimum=0,
                     maximum=2333,
@@ -757,137 +604,87 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                         record_button.change(fn=save_to_wav, inputs=[record_button], outputs=[input_audio0])
                         record_button.change(fn=change_choices2, inputs=[], outputs=[input_audio0])
                 with gr.Column():
-                    with gr.Accordion("Index Settings", open=False):
-                        file_index1 = gr.Dropdown(
-                            label="3. Path to your added.index file (if it didn't automatically find it.)",
-                            choices=get_indexes(),
-                            value=get_index(),
-                            interactive=True,
-                            )
-                        sid0.change(fn=match_index, inputs=[sid0],outputs=[file_index1])
-                        refresh_button.click(
-                            fn=change_choices, inputs=[], outputs=[sid0, file_index1]
-                            )
-                        # file_big_npy1 = gr.Textbox(
-                        #     label=i18n("特征文件路径"),
-                        #     value="E:\\codes\py39\\vits_vc_gpu_train\\logs\\mi-test-1key\\total_fea.npy",
-                        #     interactive=True,
-                        # )
-                        index_rate1 = gr.Slider(
-                            minimum=0,
-                            maximum=1,
-                            label=i18n("检索特征占比"),
-                            value=0.66,
-                            interactive=True,
-                            )
+                    #antigo index
+                    file_index1 = gr.Dropdown(
+                        label="3. Path to your added.index file (if it didn't automatically find it.)",
+                        choices=get_indexes(),
+                        value=get_index(),
+                        interactive=True,
+                        visible=False,
+                        )
+                    sid0.change(fn=match_index, inputs=[sid0],outputs=[file_index1])
+                    refresh_button.click(
+                        fn=change_choices, inputs=[], outputs=[sid0, file_index1]
+                    )
+                    index_rate1 = gr.Slider(
+                        minimum=0,
+                        maximum=1,
+                        label=i18n("检索特征占比"),
+                        value=0.66,
+                        interactive=True,
+                        visible=False,
+                        )
+                    ###---
                     vc_output2 = gr.Audio(
                         label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
                         type='filepath',
                         interactive=False,
                     )
                     vc_output1 = gr.Textbox("")
-                    with gr.Accordion("Advanced Settings", open=False):
-                        f0method0 = gr.Radio(
-                            label="Optional: Change the Pitch Extraction Algorithm.\nExtraction methods are sorted from 'worst quality' to 'best quality'.\nmangio-crepe may or may not be better than rmvpe in cases where 'smoothness' is more important, but rmvpe is the best overall.",
-                            choices=["pm", "dio", "crepe-tiny", "mangio-crepe-tiny", "crepe", "harvest", "mangio-crepe", "rmvpe"], # Fork Feature. Add Crepe-Tiny
-                            value="rmvpe",
-                            interactive=True,
-                            visible=False,
+                    f0method0 = gr.Radio(
+                        label="Optional: Change the Pitch Extraction Algorithm.\nExtraction methods are sorted from 'worst quality' to 'best quality'.\nmangio-crepe may or may not be better than rmvpe in cases where 'smoothness' is more important, but rmvpe is the best overall.",
+                        choices=["pm", "dio", "crepe-tiny", "mangio-crepe-tiny", "crepe", "harvest", "mangio-crepe", "rmvpe"], # Fork Feature. Add Crepe-Tiny
+                        value="rmvpe",
+                        interactive=True,
+                        visible=False,
+                    )
+                    
+                    crepe_hop_length = gr.Slider(
+                        minimum=1,
+                        maximum=512,
+                        step=1,
+                        label="Mangio-Crepe Hop Length. Higher numbers will reduce the chance of extreme pitch changes but lower numbers will increase accuracy. 64-192 is a good range to experiment with.",
+                        value=120,
+                        interactive=True,
+                        visible=False,
                         )
-                        
-                        crepe_hop_length = gr.Slider(
-                            minimum=1,
-                            maximum=512,
-                            step=1,
-                            label="Mangio-Crepe Hop Length. Higher numbers will reduce the chance of extreme pitch changes but lower numbers will increase accuracy. 64-192 is a good range to experiment with.",
-                            value=120,
-                            interactive=True,
-                            visible=False,
-                            )
-                        #f0method0.change(fn=whethercrepeornah, inputs=[f0method0], outputs=[crepe_hop_length])
-                        filter_radius0 = gr.Slider(
-                            minimum=0,
-                            maximum=7,
-                            label=i18n(">=3则使用对harvest音高识别的结果使用中值滤波，数值为滤波半径，使用可以削弱哑音"),
-                            value=3,
-                            step=1,
-                            interactive=True,
-                            visible=False,
-                            )
-                        resample_sr0 = gr.Slider(
-                            minimum=0,
-                            maximum=48000,
-                            label=i18n("后处理重采样至最终采样率，0为不进行重采样"),
-                            value=0,
-                            step=1,
-                            interactive=True,
-                            visible=False
-                            )
-                        rms_mix_rate0 = gr.Slider(
-                            minimum=0,
-                            maximum=1,
-                            label=i18n("输入源音量包络替换输出音量包络融合比例，越靠近1越使用输出包络"),
-                            value=0.21,
-                            interactive=True,
-                            visible=False,
-                            )
-                        protect0 = gr.Slider(
-                            minimum=0,
-                            maximum=0.5,
-                            label=i18n("保护清辅音和呼吸声，防止电音撕裂等artifact，拉满0.5不开启，调低加大保护力度但可能降低索引效果"),
-                            value=0.33,
-                            step=0.01,
-                            interactive=True,
-                            visible=False,
-                            )
-                        formanting = gr.Checkbox(
-                            value=bool(DoFormant),
-                            label="[EXPERIMENTAL] Formant shift inference audio",
-                            info="Used for male to female and vice-versa conversions",
-                            interactive=True,
-                            visible=True,
+                    #f0method0.change(fn=whethercrepeornah, inputs=[f0method0], outputs=[crepe_hop_length])
+                    filter_radius0 = gr.Slider(
+                        minimum=0,
+                        maximum=7,
+                        label=i18n(">=3则使用对harvest音高识别的结果使用中值滤波，数值为滤波半径，使用可以削弱哑音"),
+                        value=3,
+                        step=1,
+                        interactive=True,
+                        visible=False,
                         )
-                        
-                        formant_preset = gr.Dropdown(
-                            value='',
-                            choices=get_fshift_presets(),
-                            label="browse presets for formanting",
-                            visible=bool(DoFormant),
+                    resample_sr0 = gr.Slider(
+                        minimum=0,
+                        maximum=48000,
+                        label=i18n("后处理重采样至最终采样率，0为不进行重采样"),
+                        value=0,
+                        step=1,
+                        interactive=True,
+                        visible=False
                         )
-                        formant_refresh_button = gr.Button(
-                            value='\U0001f504',
-                            visible=bool(DoFormant),
-                            variant='primary',
+                    rms_mix_rate0 = gr.Slider(
+                        minimum=0,
+                        maximum=1,
+                        label=i18n("输入源音量包络替换输出音量包络融合比例，越靠近1越使用输出包络"),
+                        value=0.21,
+                        interactive=True,
+                        visible=False,
                         )
-                        #formant_refresh_button = ToolButton( elem_id='1')
-                        #create_refresh_button(formant_preset, lambda: {"choices": formant_preset}, "refresh_list_shiftpresets")
-                        
-                        qfrency = gr.Slider(
-                                value=Quefrency,
-                                info="Default value is 1.0",
-                                label="Quefrency for formant shifting",
-                                minimum=0.0,
-                                maximum=16.0,
-                                step=0.1,
-                                visible=bool(DoFormant),
-                                interactive=True,
-                            )
-                        tmbre = gr.Slider(
-                            value=Timbre,
-                            info="Default value is 1.0",
-                            label="Timbre for formant shifting",
-                            minimum=0.0,
-                            maximum=16.0,
-                            step=0.1,
-                            visible=bool(DoFormant),
-                            interactive=True,
+                    protect0 = gr.Slider(
+                        minimum=0,
+                        maximum=0.5,
+                        label=i18n("保护清辅音和呼吸声，防止电音撕裂等artifact，拉满0.5不开启，调低加大保护力度但可能降低索引效果"),
+                        value=0.33,
+                        step=0.01,
+                        interactive=True,
+                        visible=False,
                         )
-                        
-                        formant_preset.change(fn=preset_apply, inputs=[formant_preset, qfrency, tmbre], outputs=[qfrency, tmbre])
-                        frmntbut = gr.Button("Apply", variant="primary", visible=bool(DoFormant))
-                        formanting.change(fn=formant_enabled,inputs=[formanting,qfrency,tmbre,frmntbut,formant_preset,formant_refresh_button],outputs=[formanting,qfrency,tmbre,frmntbut,formant_preset,formant_refresh_button])
-                        frmntbut.click(fn=formant_apply,inputs=[qfrency, tmbre], outputs=[qfrency, tmbre])
-                        formant_refresh_button.click(fn=update_fshift_presets,inputs=[formant_preset, qfrency, tmbre],outputs=[formant_preset, qfrency, tmbre])
+                    ###-----
             with gr.Row():
                 f0_file = gr.File(label=i18n("F0曲线文件, 可选, 一行一个音高, 代替默认F0及升降调"), visible=False)
                 
