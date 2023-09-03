@@ -4,10 +4,7 @@ os.environ["no_proxy"] = "localhost, 127.0.0.1, ::1"
 import threading
 from time import sleep
 from subprocess import Popen
-import faiss
-from random import shuffle
-import json, datetime, requests
-from gtts import gTTS
+import datetime, requests
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 tmp = os.path.join(now_dir, "TEMP")
@@ -21,15 +18,18 @@ warnings.filterwarnings("ignore")
 torch.manual_seed(114514)
 from i18n import I18nAuto
 
-import signal
-
-import math
-
 from my_utils import load_audio, CSVutil
 
 DoFormant = False
 Quefrency = 1.0
 Timbre = 1.0
+
+f0_method = 'rmvpe' 
+crepe_hop_length = 120
+filter_radius = 3
+resample_sr = 1
+rms_mix_rate = 0.21
+protect = 0.33
 
 # essa parte excluir dps
 if not os.path.isdir('csvdb/'):
@@ -78,8 +78,6 @@ else:
     print("-------------------------------\nNot running on Google Colab, skipping download.")
 
 i18n = I18nAuto()
-#i18n.print()
-# 判断是否有能用来训练和加速推理的N卡
 ngpu = torch.cuda.device_count()
 gpu_infos = []
 mem = []
@@ -177,16 +175,8 @@ def vc_single(
     input_audio_path,
     f0_up_key,
     f0_file,
-    f0_method,
     file_index,
-    #file_index2,
-    # file_big_npy,
     index_rate,
-    filter_radius,
-    resample_sr,
-    rms_mix_rate,
-    protect,
-    crepe_hop_length,
 ):  # spk_item, input_audio0, vc_transform0,f0_file,f0method0
     global tgt_sr, net_g, vc, hubert_model, version
     if input_audio_path is None:
@@ -224,7 +214,6 @@ def vc_single(
             f0_up_key,
             f0_method,
             file_index,
-            # file_big_npy,
             index_rate,
             if_f0,
             filter_radius,
@@ -233,7 +222,7 @@ def vc_single(
             rms_mix_rate,
             version,
             protect,
-            0,
+            crepe_hop_length,
             f0_file=f0_file,
         )
         if resample_sr >= 16000 and tgt_sr != resample_sr:
@@ -324,10 +313,7 @@ def change_choices():
         for name in files:
             if name.endswith(".index") and "trained" not in name:
                 index_paths.append("%s/%s" % (root, name))
-    return {"choices": sorted(names), "__type__": "update"}, {
-        "choices": sorted(index_paths),
-        "__type__": "update",
-    }
+    return {"choices": sorted(names), "__type__": "update"}
 
 def clean():
     return {"value": "", "__type__": "update"}
@@ -455,7 +441,7 @@ def change_choices2():
     for filename in os.listdir("./audios"):
         if filename.endswith(('.wav','.mp3','.ogg','.flac','.m4a','.aac','.mp4')):
             audio_files.append(os.path.join('./audios',filename).replace('\\', '/'))
-    return {"choices": sorted(audio_files), "__type__": "update"}, {"__type__": "update"}
+    return {"choices": sorted(audio_files), "__type__": "update"}
     
 audio_files=[]
 for filename in os.listdir("./audios"):
@@ -601,6 +587,7 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                         dropbox.upload(fn=save_to_wav2, inputs=[dropbox], outputs=[input_audio0])
                         dropbox.upload(fn=change_choices2, inputs=[], outputs=[input_audio0])
                         refresh_button2 = gr.Button("Refresh", variant="primary", size='sm')
+                        refresh_button2.click(fn=change_choices2, inputs=[], outputs=[input_audio0])
                         record_button.change(fn=save_to_wav, inputs=[record_button], outputs=[input_audio0])
                         record_button.change(fn=change_choices2, inputs=[], outputs=[input_audio0])
                 with gr.Column():
@@ -613,9 +600,7 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                         visible=False,
                         )
                     sid0.change(fn=match_index, inputs=[sid0],outputs=[file_index1])
-                    refresh_button.click(
-                        fn=change_choices, inputs=[], outputs=[sid0, file_index1]
-                    )
+                    refresh_button.click(fn=change_choices, inputs=[], outputs=[sid0])
                     index_rate1 = gr.Slider(
                         minimum=0,
                         maximum=1,
@@ -631,59 +616,6 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                         interactive=False,
                     )
                     vc_output1 = gr.Textbox("")
-                    f0method0 = gr.Radio(
-                        label="Optional: Change the Pitch Extraction Algorithm.\nExtraction methods are sorted from 'worst quality' to 'best quality'.\nmangio-crepe may or may not be better than rmvpe in cases where 'smoothness' is more important, but rmvpe is the best overall.",
-                        choices=["pm", "dio", "crepe-tiny", "mangio-crepe-tiny", "crepe", "harvest", "mangio-crepe", "rmvpe"], # Fork Feature. Add Crepe-Tiny
-                        value="rmvpe",
-                        interactive=True,
-                        visible=False,
-                    )
-                    
-                    crepe_hop_length = gr.Slider(
-                        minimum=1,
-                        maximum=512,
-                        step=1,
-                        label="Mangio-Crepe Hop Length. Higher numbers will reduce the chance of extreme pitch changes but lower numbers will increase accuracy. 64-192 is a good range to experiment with.",
-                        value=120,
-                        interactive=True,
-                        visible=False,
-                        )
-                    #f0method0.change(fn=whethercrepeornah, inputs=[f0method0], outputs=[crepe_hop_length])
-                    filter_radius0 = gr.Slider(
-                        minimum=0,
-                        maximum=7,
-                        label=i18n(">=3则使用对harvest音高识别的结果使用中值滤波，数值为滤波半径，使用可以削弱哑音"),
-                        value=3,
-                        step=1,
-                        interactive=True,
-                        visible=False,
-                        )
-                    resample_sr0 = gr.Slider(
-                        minimum=0,
-                        maximum=48000,
-                        label=i18n("后处理重采样至最终采样率，0为不进行重采样"),
-                        value=0,
-                        step=1,
-                        interactive=True,
-                        visible=False
-                        )
-                    rms_mix_rate0 = gr.Slider(
-                        minimum=0,
-                        maximum=1,
-                        label=i18n("输入源音量包络替换输出音量包络融合比例，越靠近1越使用输出包络"),
-                        value=0.21,
-                        interactive=True,
-                        visible=False,
-                        )
-                    protect0 = gr.Slider(
-                        minimum=0,
-                        maximum=0.5,
-                        label=i18n("保护清辅音和呼吸声，防止电音撕裂等artifact，拉满0.5不开启，调低加大保护力度但可能降低索引效果"),
-                        value=0.33,
-                        step=0.01,
-                        interactive=True,
-                        visible=False,
-                        )
                     ###-----
             with gr.Row():
                 f0_file = gr.File(label=i18n("F0曲线文件, 可选, 一行一个音高, 代替默认F0及升降调"), visible=False)
@@ -695,16 +627,8 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                         input_audio0,
                         vc_transform0,
                         f0_file,
-                        f0method0,
                         file_index1,
-                        # file_index2,
-                        # file_big_npy1,
                         index_rate1,
-                        filter_radius0,
-                        resample_sr0,
-                        rms_mix_rate0,
-                        protect0,
-                        crepe_hop_length
                     ],
                     [vc_output1, vc_output2],
                 )
