@@ -58,6 +58,17 @@ def download_models():
             print("Downloaded hubert base model file successfully. File saved to ./hubert_base.pt.")
         else:
             raise Exception("Failed to download hubert base model file. Status code: " + str(response.status_code) + ".")
+        
+    # Download rmvpe model if not present
+    if not os.path.isfile('./rmvpe.pt'):
+        response = requests.get('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt')
+
+        if response.status_code == 200:
+            with open('./rmvpe.pt', 'wb') as f:
+                f.write(response.content)
+            print("Downloaded rmvpe model file successfully. File saved to ./rmvpe.pt.")
+        else:
+            raise Exception("Failed to download rmvpe model file. Status code: " + str(response.status_code) + ".")
 
 download_models()
 
