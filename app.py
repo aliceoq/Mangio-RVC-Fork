@@ -1,38 +1,163 @@
-import os
-import torch
+import subprocess, torch, os, traceback, sys, warnings, shutil, numpy as np
+from mega import Mega
+os.environ["no_proxy"] = "localhost, 127.0.0.1, ::1"
+import threading
+from time import sleep
+from subprocess import Popen
+import datetime, requests
+now_dir = os.getcwd()
+sys.path.append(now_dir)
+tmp = os.path.join(now_dir, "TEMP")
+shutil.rmtree(tmp, ignore_errors=True)
+shutil.rmtree("%s/runtime/Lib/site-packages/infer_pack" % (now_dir), ignore_errors=True)
+os.makedirs(tmp, exist_ok=True)
+os.makedirs(os.path.join(now_dir, "logs"), exist_ok=True)
+os.makedirs(os.path.join(now_dir, "weights"), exist_ok=True)
+os.environ["TEMP"] = tmp
+warnings.filterwarnings("ignore")
+torch.manual_seed(114514)
+from i18n import I18nAuto
 
-# os.system("wget -P cvec/ https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt")
-import gradio as gr
-import librosa
-import numpy as np
-import logging
-from fairseq import checkpoint_utils
-from vc_infer_pipeline import VC
-import traceback
-from config import Config
+from utils import load_audio, CSVutil
+
+DoFormant = False
+Quefrency = 1.0
+Timbre = 1.0
+
+f0_method = 'rmvpe' 
+crepe_hop_length = 120
+filter_radius = 3
+resample_sr = 1
+rms_mix_rate = 0.21
+protect = 0.33
+
+# essa parte excluir dps
+if not os.path.isdir('csvdb/'):
+    os.makedirs('csvdb')
+    frmnt, stp = open("csvdb/formanting.csv", 'w'), open("csvdb/stop.csv", 'w')
+    frmnt.close()
+    stp.close()
+
+try:
+    DoFormant, Quefrency, Timbre = CSVutil('csvdb/formanting.csv', 'r', 'formanting')
+    DoFormant = (
+        lambda DoFormant: True if DoFormant.lower() == 'true' else (False if DoFormant.lower() == 'false' else DoFormant)
+    )(DoFormant)
+except (ValueError, TypeError, IndexError):
+    DoFormant, Quefrency, Timbre = False, 1.0, 1.0
+    CSVutil('csvdb/formanting.csv', 'w+', 'formanting', DoFormant, Quefrency, Timbre)
+
+def download_models():
+    # Download hubert base model if not present
+    if not os.path.isfile('./hubert_base.pt'):
+        response = requests.get('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt')
+
+        if response.status_code == 200:
+            with open('./hubert_base.pt', 'wb') as f:
+                f.write(response.content)
+            print("Downloaded hubert base model file successfully. File saved to ./hubert_base.pt.")
+        else:
+            raise Exception("Failed to download hubert base model file. Status code: " + str(response.status_code) + ".")
+        
+    # Download rmvpe model if not present
+    if not os.path.isfile('./rmvpe.pt'):
+        response = requests.get('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt')
+
+        if response.status_code == 200:
+            with open('./rmvpe.pt', 'wb') as f:
+                f.write(response.content)
+            print("Downloaded rmvpe model file successfully. File saved to ./rmvpe.pt.")
+        else:
+            raise Exception("Failed to download rmvpe model file. Status code: " + str(response.status_code) + ".")
+
+download_models()
+
+print("\n-------------------------------\nRVC v2 Easy GUI (Local Edition)\n-------------------------------\n")
+
+i18n = I18nAuto()
+ngpu = torch.cuda.device_count()
+gpu_infos = []
+mem = []
+if (not torch.cuda.is_available()) or ngpu == 0:
+    if_gpu_ok = False
+else:
+    if_gpu_ok = False
+    for i in range(ngpu):
+        gpu_name = torch.cuda.get_device_name(i)
+        if (
+            "10" in gpu_name
+            or "16" in gpu_name
+            or "20" in gpu_name
+            or "30" in gpu_name
+            or "40" in gpu_name
+            or "A2" in gpu_name.upper()
+            or "A3" in gpu_name.upper()
+            or "A4" in gpu_name.upper()
+            or "P4" in gpu_name.upper()
+            or "A50" in gpu_name.upper()
+            or "A60" in gpu_name.upper()
+            or "70" in gpu_name
+            or "80" in gpu_name
+            or "90" in gpu_name
+            or "M4" in gpu_name.upper()
+            or "T4" in gpu_name.upper()
+            or "TITAN" in gpu_name.upper()
+        ):  # A10#A100#V100#A40#P40#M40#K80#A4500
+            if_gpu_ok = True  # 至少有一张能用的N卡
+            gpu_infos.append("%s\t%s" % (i, gpu_name))
+            mem.append(
+                int(
+                    torch.cuda.get_device_properties(i).total_memory
+                    / 1024
+                    / 1024
+                    / 1024
+                    + 0.4
+                )
+            )
+if if_gpu_ok == True and len(gpu_infos) > 0:
+    gpu_info = "\n".join(gpu_infos)
+    default_batch_size = min(mem) // 2
+else:
+    gpu_info = i18n("很遗憾您这没有能用的显卡来支持您训练")
+    default_batch_size = 1
+gpus = "-".join([i[0] for i in gpu_infos])
 from lib.infer_pack.models import (
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono,
     SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs768NSFsid_nono,
 )
-from i18n import I18nAuto
-
-logging.getLogger("numba").setLevel(logging.WARNING)
-logging.getLogger("markdown_it").setLevel(logging.WARNING)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("matplotlib").setLevel(logging.WARNING)
-
-i18n = I18nAuto()
-i18n.print()
+import soundfile as sf
+from fairseq import checkpoint_utils
+import gradio as gr
+import logging
+from vc_infer_pipeline import VC
+from config import Config
 
 config = Config()
+# from trainset_preprocess_pipeline import PreProcess
+logging.getLogger("numba").setLevel(logging.WARNING)
+
+hubert_model = None
+
+def load_hubert():
+    global hubert_model
+    models, _, _ = checkpoint_utils.load_model_ensemble_and_task(
+        ["hubert_base.pt"],
+        suffix="",
+    )
+    hubert_model = models[0]
+    hubert_model = hubert_model.to(config.device)
+    if config.is_half:
+        hubert_model = hubert_model.half()
+    else:
+        hubert_model = hubert_model.float()
+    hubert_model.eval()
+
 
 weight_root = "weights"
-weight_uvr5_root = "uvr5_weights"
 index_root = "logs"
 names = []
-hubert_model = None
 for name in os.listdir(weight_root):
     if name.endswith(".pth"):
         names.append(name)
@@ -42,6 +167,78 @@ for root, dirs, files in os.walk(index_root, topdown=False):
         if name.endswith(".index") and "trained" not in name:
             index_paths.append("%s/%s" % (root, name))
 
+def vc_single(
+    sid,
+    input_audio_path,
+    f0_up_key,
+    f0_file,
+    file_index,
+    index_rate,
+):  # spk_item, input_audio0, vc_transform0,f0_file,f0method0
+    global tgt_sr, net_g, vc, hubert_model, version
+    if input_audio_path is None:
+        return "You need to upload an audio", None
+    f0_up_key = int(f0_up_key)
+    try:
+        audio = load_audio(input_audio_path, 16000, DoFormant, Quefrency, Timbre)
+        audio_max = np.abs(audio).max() / 0.95
+        if audio_max > 1:
+            audio /= audio_max
+        times = [0, 0, 0]
+        if hubert_model == None:
+            load_hubert()
+        if_f0 = cpt.get("f0", 1)
+        file_index = (
+            (
+                file_index.strip(" ")
+                .strip('"')
+                .strip("\n")
+                .strip('"')
+                .strip(" ")
+                .replace("trained", "added")
+            )
+        )  # 防止小白写错，自动帮他替换掉
+        # file_big_npy = (
+        #     file_big_npy.strip(" ").strip('"').strip("\n").strip('"').strip(" ")
+        # )
+        audio_opt = vc.pipeline(
+            hubert_model,
+            net_g,
+            sid,
+            audio,
+            input_audio_path,
+            times,
+            f0_up_key,
+            f0_method,
+            file_index,
+            index_rate,
+            if_f0,
+            filter_radius,
+            tgt_sr,
+            resample_sr,
+            rms_mix_rate,
+            version,
+            protect,
+            crepe_hop_length,
+            f0_file=f0_file,
+        )
+        if resample_sr >= 16000 and tgt_sr != resample_sr:
+            tgt_sr = resample_sr
+        index_info = (
+            "Using index:%s." % file_index
+            if os.path.exists(file_index)
+            else "Index not used."
+        )
+        return "Success.\n %s\nTime:\n npy:%ss, f0:%ss, infer:%ss" % (
+            index_info,
+            times[0],
+            times[1],
+            times[2],
+        ), (tgt_sr, audio_opt)
+    except:
+        info = traceback.format_exc()
+        print(info)
+        return info, (None, None)
 
 def get_vc(sid):
     global n_spk, tgt_sr, net_g, vc, cpt, version
@@ -101,121 +298,261 @@ def get_vc(sid):
         net_g = net_g.float()
     vc = VC(tgt_sr, config)
     n_spk = cpt["config"][-3]
-    return {"visible": True, "maximum": n_spk, "__type__": "update"}
+    return {"visible": False, "maximum": n_spk, "__type__": "update"}
 
+def change_choices():
+    names = []
+    for name in os.listdir(weight_root):
+        if name.endswith(".pth"):
+            names.append(name)
+    index_paths = []
+    for root, dirs, files in os.walk(index_root, topdown=False):
+        for name in files:
+            if name.endswith(".index") and "trained" not in name:
+                index_paths.append("%s/%s" % (root, name))
+    return {"choices": sorted(names), "__type__": "update"}
 
-def load_hubert():
-    global hubert_model
-    models, _, _ = checkpoint_utils.load_model_ensemble_and_task(
-        ["hubert_base.pt"],
-        suffix="",
-    )
-    hubert_model = models[0]
-    hubert_model = hubert_model.to(config.device)
-    if config.is_half:
-        hubert_model = hubert_model.half()
+def clean():
+    return {"value": "", "__type__": "update"}
+
+sr_dict = {
+    "32k": 32000,
+    "40k": 40000,
+    "48k": 48000,
+}
+
+def if_done(done, p):
+    while 1:
+        if p.poll() == None:
+            sleep(0.5)
+        else:
+            break
+    done[0] = True
+
+def if_done_multi(done, ps):
+    while 1:
+        # poll==None代表进程未结束
+        # 只要有一个进程未结束都不停
+        flag = 1
+        for p in ps:
+            if p.poll() == None:
+                flag = 0
+                sleep(0.5)
+                break
+        if flag == 1:
+            break
+    done[0] = True
+
+def extract_f0_feature(gpus, n_p, f0method, if_f0, exp_dir, version19, echl):
+    gpus = gpus.split("-")
+    os.makedirs("%s/logs/%s" % (now_dir, exp_dir), exist_ok=True)
+    f = open("%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "w")
+    f.close()
+    if if_f0:
+        cmd = config.python_cmd + " extract_f0_print.py %s/logs/%s %s %s %s" % (
+            now_dir,
+            exp_dir,
+            n_p,
+            f0method,
+            echl,
+        )
+        print(cmd)
+        p = Popen(cmd, shell=True, cwd=now_dir)  # , stdin=PIPE, stdout=PIPE,stderr=PIPE
+        ###煞笔gr, popen read都非得全跑完了再一次性读取, 不用gr就正常读一句输出一句;只能额外弄出一个文本流定时读
+        done = [False]
+        threading.Thread(
+            target=if_done,
+            args=(
+                done,
+                p,
+            ),
+        ).start()
+        while 1:
+            with open(
+                "%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "r"
+            ) as f:
+                yield (f.read())
+            sleep(1)
+            if done[0] == True:
+                break
+        with open("%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "r") as f:
+            log = f.read()
+        print(log)
+        yield log
+    ####对不同part分别开多进程
+    """
+    n_part=int(sys.argv[1])
+    i_part=int(sys.argv[2])
+    i_gpu=sys.argv[3]
+    exp_dir=sys.argv[4]
+    os.environ["CUDA_VISIBLE_DEVICES"]=str(i_gpu)
+    """
+    leng = len(gpus)
+    ps = []
+    for idx, n_g in enumerate(gpus):
+        cmd = (
+            config.python_cmd
+            + " extract_feature_print.py %s %s %s %s %s/logs/%s %s"
+            % (
+                config.device,
+                leng,
+                idx,
+                n_g,
+                now_dir,
+                exp_dir,
+                version19,
+            )
+        )
+        print(cmd)
+        p = Popen(
+            cmd, shell=True, cwd=now_dir
+        )  # , shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE, cwd=now_dir
+        ps.append(p)
+    ###煞笔gr, popen read都非得全跑完了再一次性读取, 不用gr就正常读一句输出一句;只能额外弄出一个文本流定时读
+    done = [False]
+    threading.Thread(
+        target=if_done_multi,
+        args=(
+            done,
+            ps,
+        ),
+    ).start()
+    while 1:
+        with open("%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "r") as f:
+            yield (f.read())
+        sleep(1)
+        if done[0] == True:
+            break
+    with open("%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "r") as f:
+        log = f.read()
+    print(log)
+    yield log
+
+def whethercrepeornah(radio):
+    mango = True if radio == 'mangio-crepe' or radio == 'mangio-crepe-tiny' else False
+    return ({"visible": mango, "__type__": "update"})
+
+#region RVC WebUI App
+def change_choices2():
+    audio_files=[]
+    for filename in os.listdir("./audios"):
+        if filename.endswith(('.wav','.mp3','.ogg','.flac','.m4a','.aac','.mp4')):
+            audio_files.append(os.path.join('./audios',filename).replace('\\', '/'))
+    return {"choices": sorted(audio_files), "__type__": "update"}
+    
+audio_files=[]
+for filename in os.listdir("./audios"):
+    if filename.endswith(('.wav','.mp3','.ogg','.flac','.m4a','.aac','.mp4')):
+        audio_files.append(os.path.join('./audios',filename).replace('\\', '/'))
+        
+def get_index():
+    if check_for_name() != '':
+        chosen_model=sorted(names)[0].split(".")[0]
+        logs_path="./logs/"+chosen_model
+        if os.path.exists(logs_path):
+            for file in os.listdir(logs_path):
+                if file.endswith(".index"):
+                    return os.path.join(logs_path, file)
+            return ''
+        else:
+            return ''
+        
+def get_indexes():
+    indexes_list=[]
+    for dirpath, dirnames, filenames in os.walk("./logs/"):
+        for filename in filenames:
+            if filename.endswith(".index"):
+                indexes_list.append(os.path.join(dirpath,filename))
+    if len(indexes_list) > 0:
+        return indexes_list
     else:
-        hubert_model = hubert_model.float()
-    hubert_model.eval()
-
-
-def vc_single(
-    sid,
-    input_audio_path,
-    f0_up_key,
-    f0_file,
-    f0_method,
-    file_index,
-    file_index2,
-    # file_big_npy,
-    index_rate,
-    filter_radius,
-    resample_sr,
-    rms_mix_rate,
-    protect,
-):  # spk_item, input_audio0, vc_transform0,f0_file,f0method0
-    global tgt_sr, net_g, vc, hubert_model, version
-    if input_audio_path is None:
-        return "You need to upload an audio", None
-    f0_up_key = int(f0_up_key)
+        return ''
+        
+def save_to_wav(record_button):
+    if record_button is None:
+        pass
+    else:
+        path_to_file=record_button
+        new_name = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")+'.wav'
+        new_path='./audios/'+new_name
+        shutil.move(path_to_file,new_path)
+        return new_path
+    
+def save_to_wav2(dropbox):
+    file_path=dropbox.name
+    shutil.move(file_path,'./audios')
+    return os.path.join('./audios',os.path.basename(file_path))
+    
+def match_index(sid0):
+    folder=sid0.split(".")[0]
+    parent_dir="./logs/"+folder
+    if os.path.exists(parent_dir):
+        for filename in os.listdir(parent_dir):
+            if filename.endswith(".index"):
+                index_path=os.path.join(parent_dir,filename)
+                return index_path
+    else:
+        return ''
+                
+def check_for_name():
+    if len(names) > 0:
+        return sorted(names)[0]
+    else:
+        return ''
+            
+def download_from_url(url, model):
+    if url == '':
+        return "URL cannot be left empty."
+    if model =='':
+        return "You need to name your model. For example: My-Model"
+    url = url.strip()
+    zip_dirs = ["zips", "unzips"]
+    for directory in zip_dirs:
+        if os.path.exists(directory):
+            shutil.rmtree(directory)
+    os.makedirs("zips", exist_ok=True)
+    os.makedirs("unzips", exist_ok=True)
+    zipfile = model + '.zip'
+    zipfile_path = './zips/' + zipfile
     try:
-        audio = input_audio_path[1] / 32768.0
-        if len(audio.shape) == 2:
-            audio = np.mean(audio, -1)
-        audio = librosa.resample(audio, orig_sr=input_audio_path[0], target_sr=16000)
-        audio_max = np.abs(audio).max() / 0.95
-        if audio_max > 1:
-            audio /= audio_max
-        times = [0, 0, 0]
-        if hubert_model == None:
-            load_hubert()
-        if_f0 = cpt.get("f0", 1)
-        file_index = (
-            (
-                file_index.strip(" ")
-                .strip('"')
-                .strip("\n")
-                .strip('"')
-                .strip(" ")
-                .replace("trained", "added")
-            )
-            if file_index != ""
-            else file_index2
-        )  # 防止小白写错，自动帮他替换掉
-        # file_big_npy = (
-        #     file_big_npy.strip(" ").strip('"').strip("\n").strip('"').strip(" ")
-        # )
-        audio_opt = vc.pipeline(
-            hubert_model,
-            net_g,
-            sid,
-            audio,
-            input_audio_path,
-            times,
-            f0_up_key,
-            f0_method,
-            file_index,
-            # file_big_npy,
-            index_rate,
-            if_f0,
-            filter_radius,
-            tgt_sr,
-            resample_sr,
-            rms_mix_rate,
-            version,
-            protect,
-            f0_file=f0_file,
-        )
-        if resample_sr >= 16000 and tgt_sr != resample_sr:
-            tgt_sr = resample_sr
-        index_info = (
-            "Using index:%s." % file_index
-            if os.path.exists(file_index)
-            else "Index not used."
-        )
-        return "Success.\n %s\nTime:\n npy:%ss, f0:%ss, infer:%ss" % (
-            index_info,
-            times[0],
-            times[1],
-            times[2],
-        ), (tgt_sr, audio_opt)
+        if "drive.google.com" in url:
+            subprocess.run(["gdown", url, "--fuzzy", "-O", zipfile_path])
+        elif "mega.nz" in url:
+            m = Mega()
+            m.download_url(url, './zips')
+        else:
+            subprocess.run(["wget", url, "-O", zipfile_path])
+        for filename in os.listdir("./zips"):
+            if filename.endswith(".zip"):
+                zipfile_path = os.path.join("./zips/",filename)
+                shutil.unpack_archive(zipfile_path, "./unzips", 'zip')
+            else:
+                return "No zipfile found."
+        for root, dirs, files in os.walk('./unzips'):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if file.endswith(".index"):
+                    os.mkdir(f'./logs/{model}')
+                    shutil.copy2(file_path,f'./logs/{model}')
+                elif "G_" not in file and "D_" not in file and file.endswith(".pth"):
+                    shutil.copy(file_path,f'./weights/{model}.pth')
+        shutil.rmtree("zips")
+        shutil.rmtree("unzips")
+        return "Success."
     except:
-        info = traceback.format_exc()
-        print(info)
-        return info, (None, None)
+        return "There's been an error."
 
+with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
+    with gr.Tabs():        
+        with gr.TabItem("Inference"):
+            gr.HTML("<h1> Vozes da Loirinha 👱🏻‍♀️ </h1>")
 
-app = gr.Blocks()
-with app:
-    with gr.Tabs():
-        with gr.TabItem("在线demo"):
-            gr.Markdown(
-                value="""
-                RVC 在线demo
-                """
-            )
-            sid = gr.Dropdown(label=i18n("推理音色"), choices=sorted(names))
-            with gr.Column():
+            with gr.Row():
+                sid0 = gr.Dropdown(label="1.Choose your Model.", choices=sorted(names), value=check_for_name())
+                refresh_button = gr.Button("Refresh", variant="primary")
+                if check_for_name() != '':
+                    get_vc(sorted(names)[0])
+                vc_transform0 = gr.Number(label="Optional: You can change the pitch here or leave it at 0.", value=0, visible=False)
                 spk_item = gr.Slider(
                     minimum=0,
                     maximum=2333,
@@ -225,95 +562,92 @@ with app:
                     visible=False,
                     interactive=True,
                 )
-            sid.change(
-                fn=get_vc,
-                inputs=[sid],
-                outputs=[spk_item],
-            )
-            gr.Markdown(
-                value=i18n("男转女推荐+12key, 女转男推荐-12key, 如果音域爆炸导致音色失真也可以自己调整到合适音域. ")
-            )
-            vc_input3 = gr.Audio(label="上传音频（长度小于90秒）")
-            vc_transform0 = gr.Number(label=i18n("变调(整数, 半音数量, 升八度12降八度-12)"), value=0)
-            f0method0 = gr.Radio(
-                label=i18n("选择音高提取算法,输入歌声可用pm提速,harvest低音好但巨慢无比,crepe效果好但吃GPU"),
-                choices=["pm", "harvest", "crepe"],
-                value="pm",
-                interactive=True,
-            )
-            filter_radius0 = gr.Slider(
-                minimum=0,
-                maximum=7,
-                label=i18n(">=3则使用对harvest音高识别的结果使用中值滤波，数值为滤波半径，使用可以削弱哑音"),
-                value=3,
-                step=1,
-                interactive=True,
-            )
-            with gr.Column():
-                file_index1 = gr.Textbox(
-                    label=i18n("特征检索库文件路径,为空则使用下拉的选择结果"),
-                    value="",
-                    interactive=False,
-                    visible=False,
+                #clean_button.click(fn=clean, inputs=[], outputs=[sid0])
+                sid0.change(
+                    fn=get_vc,
+                    inputs=[sid0],
+                    outputs=[spk_item],
                 )
-            file_index2 = gr.Dropdown(
-                label=i18n("自动检测index路径,下拉式选择(dropdown)"),
-                choices=sorted(index_paths),
-                interactive=True,
-            )
-            index_rate1 = gr.Slider(
-                minimum=0,
-                maximum=1,
-                label=i18n("检索特征占比"),
-                value=0.88,
-                interactive=True,
-            )
-            resample_sr0 = gr.Slider(
-                minimum=0,
-                maximum=48000,
-                label=i18n("后处理重采样至最终采样率，0为不进行重采样"),
-                value=0,
-                step=1,
-                interactive=True,
-            )
-            rms_mix_rate0 = gr.Slider(
-                minimum=0,
-                maximum=1,
-                label=i18n("输入源音量包络替换输出音量包络融合比例，越靠近1越使用输出包络"),
-                value=1,
-                interactive=True,
-            )
-            protect0 = gr.Slider(
-                minimum=0,
-                maximum=0.5,
-                label=i18n("保护清辅音和呼吸声，防止电音撕裂等artifact，拉满0.5不开启，调低加大保护力度但可能降低索引效果"),
-                value=0.33,
-                step=0.01,
-                interactive=True,
-            )
-            f0_file = gr.File(label=i18n("F0曲线文件, 可选, 一行一个音高, 代替默认F0及升降调"))
-            but0 = gr.Button(i18n("转换"), variant="primary")
-            vc_output1 = gr.Textbox(label=i18n("输出信息"))
-            vc_output2 = gr.Audio(label=i18n("输出音频(右下角三个点,点了可以下载)"))
-            but0.click(
-                vc_single,
-                [
-                    spk_item,
-                    vc_input3,
-                    vc_transform0,
-                    f0_file,
-                    f0method0,
-                    file_index1,
-                    file_index2,
-                    # file_big_npy1,
-                    index_rate1,
-                    filter_radius0,
-                    resample_sr0,
-                    rms_mix_rate0,
-                    protect0,
-                ],
-                [vc_output1, vc_output2],
-            )
+                but0 = gr.Button("Convert", variant="primary")
+            with gr.Row():
+                with gr.Column():
+                    with gr.Row():
+                        dropbox = gr.File(label="Drop your audio here & hit the Reload button.")
+                    with gr.Row():
+                        record_button=gr.Audio(source="microphone", label="OR Record audio.", type="filepath")
+                    with gr.Row():
+                        input_audio0 = gr.Dropdown(
+                            label="2.Choose your audio.",
+                            value="./audios/oi_eu_sou_o_goku.m4a",
+                            choices=audio_files
+                            )
+                        dropbox.upload(fn=save_to_wav2, inputs=[dropbox], outputs=[input_audio0])
+                        dropbox.upload(fn=change_choices2, inputs=[], outputs=[input_audio0])
+                        refresh_button2 = gr.Button("Refresh", variant="primary", size='sm')
+                        refresh_button2.click(fn=change_choices2, inputs=[], outputs=[input_audio0])
+                        record_button.change(fn=save_to_wav, inputs=[record_button], outputs=[input_audio0])
+                        record_button.change(fn=change_choices2, inputs=[], outputs=[input_audio0])
+                with gr.Column():
+                    #antigo index
+                    file_index1 = gr.Dropdown(
+                        label="3. Path to your added.index file (if it didn't automatically find it.)",
+                        choices=get_indexes(),
+                        value=get_index(),
+                        interactive=True,
+                        visible=False,
+                        )
+                    sid0.change(fn=match_index, inputs=[sid0],outputs=[file_index1])
+                    refresh_button.click(fn=change_choices, inputs=[], outputs=[sid0])
+                    index_rate1 = gr.Slider(
+                        minimum=0,
+                        maximum=1,
+                        label=i18n("检索特征占比"),
+                        value=0.66,
+                        interactive=True,
+                        visible=False,
+                        )
+                    ###---
+                    vc_output2 = gr.Audio(
+                        label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
+                        type='filepath',
+                        interactive=False,
+                    )
+                    vc_output1 = gr.Textbox("")
+                    ###-----
+            with gr.Row():
+                f0_file = gr.File(label=i18n("F0曲线文件, 可选, 一行一个音高, 代替默认F0及升降调"), visible=False)
+                
+                but0.click(
+                    vc_single,
+                    [
+                        spk_item,
+                        input_audio0,
+                        vc_transform0,
+                        f0_file,
+                        file_index1,
+                        index_rate1,
+                    ],
+                    [vc_output1, vc_output2],
+                )
+                        
+        with gr.TabItem("Download Model"):
+            with gr.Row():
+                url=gr.Textbox(label="Enter the URL to the Model:")
+            with gr.Row():
+                model = gr.Textbox(label="Name your model:")
+                download_button=gr.Button("Download")
+            with gr.Row():
+                status_bar=gr.Textbox(label="")
+                download_button.click(fn=download_from_url, inputs=[url, model], outputs=[status_bar])
+            with gr.Row():
+                gr.Markdown(
+                """
+                Original RVC: https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI
+                Mangio's RVC Fork: https://github.com/Mangio621/Mangio-RVC-Fork
+                If you like the EasyGUI, help me keep it.❤️ https://paypal.me/lesantillan
+                Made with ❤️ by [Alice Oliveira](https://github.com/aliceoq) | Hosted with ❤️ by [Mateus Elias](https://github.com/mateuseap)
+                """
+                )
 
-
-app.launch()
+    app.queue(concurrency_count=511, max_size=1022).launch(share=False, quiet=True)
+#endregion
