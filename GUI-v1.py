@@ -25,11 +25,13 @@ Quefrency = 1.0
 Timbre = 1.0
 
 f0_method = 'rmvpe' 
+f0_up_key = 0
 crepe_hop_length = 120
 filter_radius = 3
 resample_sr = 1
 rms_mix_rate = 0.21
 protect = 0.33
+index_rate = 0.66
 
 # essa parte excluir dps
 if not os.path.isdir('csvdb/'):
@@ -181,7 +183,6 @@ def load_hubert():
         hubert_model = hubert_model.float()
     hubert_model.eval()
 
-
 weight_root = "weights"
 index_root = "logs"
 names = []
@@ -195,17 +196,12 @@ for root, dirs, files in os.walk(index_root, topdown=False):
             index_paths.append("%s/%s" % (root, name))
 
 def vc_single(
-    sid,
     input_audio_path,
-    f0_up_key,
-    f0_file,
-    file_index,
-    index_rate,
-):  # spk_item, input_audio0, vc_transform0,f0_file,f0method0
+):
+    print('---------------------vc_single-----------------------')
     global tgt_sr, net_g, vc, hubert_model, version
     if input_audio_path is None:
         return "You need to upload an audio", None
-    f0_up_key = int(f0_up_key)
     try:
         audio = load_audio(input_audio_path, 16000, DoFormant, Quefrency, Timbre)
         audio_max = np.abs(audio).max() / 0.95
@@ -215,6 +211,9 @@ def vc_single(
         if hubert_model == None:
             load_hubert()
         if_f0 = cpt.get("f0", 1)
+        print('-------------------------------')
+        file_index = get_index()
+        print(file_index)
         file_index = (
             (
                 file_index.strip(" ")
@@ -224,14 +223,11 @@ def vc_single(
                 .strip(" ")
                 .replace("trained", "added")
             )
-        )  # 防止小白写错，自动帮他替换掉
-        # file_big_npy = (
-        #     file_big_npy.strip(" ").strip('"').strip("\n").strip('"').strip(" ")
-        # )
+        )
         audio_opt = vc.pipeline(
             hubert_model,
             net_g,
-            sid,
+            0,
             audio,
             input_audio_path,
             times,
@@ -247,7 +243,7 @@ def vc_single(
             version,
             protect,
             crepe_hop_length,
-            f0_file=f0_file,
+            f0_file=None,
         )
         if resample_sr >= 16000 and tgt_sr != resample_sr:
             tgt_sr = resample_sr
@@ -325,7 +321,6 @@ def get_vc(sid):
         net_g = net_g.float()
     vc = VC(tgt_sr, config)
     n_spk = cpt["config"][-3]
-    return {"visible": False, "maximum": n_spk, "__type__": "update"}
 
 def change_choices():
     names = []
@@ -370,94 +365,8 @@ def if_done_multi(done, ps):
             break
     done[0] = True
 
-def extract_f0_feature(gpus, n_p, f0method, if_f0, exp_dir, version19, echl):
-    gpus = gpus.split("-")
-    os.makedirs("%s/logs/%s" % (now_dir, exp_dir), exist_ok=True)
-    f = open("%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "w")
-    f.close()
-    if if_f0:
-        cmd = config.python_cmd + " extract_f0_print.py %s/logs/%s %s %s %s" % (
-            now_dir,
-            exp_dir,
-            n_p,
-            f0method,
-            echl,
-        )
-        print(cmd)
-        p = Popen(cmd, shell=True, cwd=now_dir)  # , stdin=PIPE, stdout=PIPE,stderr=PIPE
-        ###煞笔gr, popen read都非得全跑完了再一次性读取, 不用gr就正常读一句输出一句;只能额外弄出一个文本流定时读
-        done = [False]
-        threading.Thread(
-            target=if_done,
-            args=(
-                done,
-                p,
-            ),
-        ).start()
-        while 1:
-            with open(
-                "%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "r"
-            ) as f:
-                yield (f.read())
-            sleep(1)
-            if done[0] == True:
-                break
-        with open("%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "r") as f:
-            log = f.read()
-        print(log)
-        yield log
-    ####对不同part分别开多进程
-    """
-    n_part=int(sys.argv[1])
-    i_part=int(sys.argv[2])
-    i_gpu=sys.argv[3]
-    exp_dir=sys.argv[4]
-    os.environ["CUDA_VISIBLE_DEVICES"]=str(i_gpu)
-    """
-    leng = len(gpus)
-    ps = []
-    for idx, n_g in enumerate(gpus):
-        cmd = (
-            config.python_cmd
-            + " extract_feature_print.py %s %s %s %s %s/logs/%s %s"
-            % (
-                config.device,
-                leng,
-                idx,
-                n_g,
-                now_dir,
-                exp_dir,
-                version19,
-            )
-        )
-        print(cmd)
-        p = Popen(
-            cmd, shell=True, cwd=now_dir
-        )  # , shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE, cwd=now_dir
-        ps.append(p)
-    ###煞笔gr, popen read都非得全跑完了再一次性读取, 不用gr就正常读一句输出一句;只能额外弄出一个文本流定时读
-    done = [False]
-    threading.Thread(
-        target=if_done_multi,
-        args=(
-            done,
-            ps,
-        ),
-    ).start()
-    while 1:
-        with open("%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "r") as f:
-            yield (f.read())
-        sleep(1)
-        if done[0] == True:
-            break
-    with open("%s/logs/%s/extract_f0_feature.log" % (now_dir, exp_dir), "r") as f:
-        log = f.read()
-    print(log)
-    yield log
-
-def whethercrepeornah(radio):
-    mango = True if radio == 'mangio-crepe' or radio == 'mangio-crepe-tiny' else False
-    return ({"visible": mango, "__type__": "update"})
+def update_dropdowns():
+    return [change_choices(), change_choices2()]
 
 #region RVC WebUI App
 def change_choices2():
@@ -483,18 +392,8 @@ def get_index():
             return ''
         else:
             return ''
-        
-def get_indexes():
-    indexes_list=[]
-    for dirpath, dirnames, filenames in os.walk("./logs/"):
-        for filename in filenames:
-            if filename.endswith(".index"):
-                indexes_list.append(os.path.join(dirpath,filename))
-    if len(indexes_list) > 0:
-        return indexes_list
-    else:
-        return ''
-        
+    return ''
+
 def save_to_wav(record_button):
     if record_button is None:
         pass
@@ -509,17 +408,6 @@ def save_to_wav2(dropbox):
     file_path=dropbox.name
     shutil.move(file_path,'./audios')
     return os.path.join('./audios',os.path.basename(file_path))
-    
-def match_index(sid0):
-    folder=sid0.split(".")[0]
-    parent_dir="./logs/"+folder
-    if os.path.exists(parent_dir):
-        for filename in os.listdir(parent_dir):
-            if filename.endswith(".index"):
-                index_path=os.path.join(parent_dir,filename)
-                return index_path
-    else:
-        return ''
                 
 def check_for_name():
     if len(names) > 0:
@@ -569,31 +457,28 @@ def download_from_url(url, model):
     except:
         return "There's been an error."
 
-with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
+css = """
+.padding {padding-left: 15px; padding-top: 5px;}
+"""
+
+with gr.Blocks(theme=gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍♀️", css=css) as app:
+    gr.HTML("<h1>Vocais da Loirinha 👱🏻‍♀️</h1>")
+
+    gr.HTML("<h2>Como usar?</h2>")
+    gr.Markdown("""Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et volutpat eros. Nunc id magna vel ligula blandit ullamcorper. Proin commodo tincidunt gravida. Morbi posuere, lorem eu ornare auctor, dolor est volutpat eros, sed aliquet justo mi eu ligula. Maecenas convallis risus metus, at convallis ex gravida in. Suspendisse varius libero nec tellus placerat vulputate. Quisque ornare enim sed tristique ultrices.""")
+
+    gr.HTML("<h2>Comece aqui!</h2>")
     with gr.Tabs():        
         with gr.TabItem("Inference"):
-            gr.HTML("<h1> Vozes da Loirinha 👱🏻‍♀️ </h1>")
-
             with gr.Row():
                 sid0 = gr.Dropdown(label="1.Choose your Model.", choices=sorted(names), value=check_for_name())
                 refresh_button = gr.Button("Refresh", variant="primary")
                 if check_for_name() != '':
                     get_vc(sorted(names)[0])
-                vc_transform0 = gr.Number(label="Optional: You can change the pitch here or leave it at 0.", value=0, visible=False)
-                spk_item = gr.Slider(
-                    minimum=0,
-                    maximum=2333,
-                    step=1,
-                    label=i18n("请选择说话人id"),
-                    value=0,
-                    visible=False,
-                    interactive=True,
-                )
-                #clean_button.click(fn=clean, inputs=[], outputs=[sid0])
                 sid0.change(
                     fn=get_vc,
                     inputs=[sid0],
-                    outputs=[spk_item],
+                    outputs=[],
                 )
                 but0 = gr.Button("Convert", variant="primary")
             with gr.Row():
@@ -605,34 +490,16 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                     with gr.Row():
                         input_audio0 = gr.Dropdown(
                             label="2.Choose your audio.",
-                            value="./audios/oi_eu_sou_o_goku.m4a",
+                            value="",
                             choices=audio_files
                             )
                         dropbox.upload(fn=save_to_wav2, inputs=[dropbox], outputs=[input_audio0])
                         dropbox.upload(fn=change_choices2, inputs=[], outputs=[input_audio0])
                         refresh_button2 = gr.Button("Refresh", variant="primary", size='sm')
-                        refresh_button2.click(fn=change_choices2, inputs=[], outputs=[input_audio0])
+                        refresh_button.click(fn=update_dropdowns, inputs=[], outputs=[sid0, input_audio0])
                         record_button.change(fn=save_to_wav, inputs=[record_button], outputs=[input_audio0])
                         record_button.change(fn=change_choices2, inputs=[], outputs=[input_audio0])
                 with gr.Column():
-                    #antigo index
-                    file_index1 = gr.Dropdown(
-                        label="3. Path to your added.index file (if it didn't automatically find it.)",
-                        choices=get_indexes(),
-                        value=get_index(),
-                        interactive=True,
-                        visible=False,
-                        )
-                    sid0.change(fn=match_index, inputs=[sid0],outputs=[file_index1])
-                    refresh_button.click(fn=change_choices, inputs=[], outputs=[sid0])
-                    index_rate1 = gr.Slider(
-                        minimum=0,
-                        maximum=1,
-                        label=i18n("检索特征占比"),
-                        value=0.66,
-                        interactive=True,
-                        visible=False,
-                        )
                     ###---
                     vc_output2 = gr.Audio(
                         label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
@@ -641,18 +508,11 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
                     )
                     vc_output1 = gr.Textbox("")
                     ###-----
-            with gr.Row():
-                f0_file = gr.File(label=i18n("F0曲线文件, 可选, 一行一个音高, 代替默认F0及升降调"), visible=False)
-                
+            with gr.Row():               
                 but0.click(
                     vc_single,
                     [
-                        spk_item,
                         input_audio0,
-                        vc_transform0,
-                        f0_file,
-                        file_index1,
-                        index_rate1,
                     ],
                     [vc_output1, vc_output2],
                 )
@@ -679,10 +539,5 @@ with gr.Blocks(theme=gr.themes.Base(), title='Mangio-RVC-Web 💻') as app:
     if config.iscolab or config.paperspace: # Share gradio link for colab and paperspace (FORK FEATURE)
         app.queue(concurrency_count=511, max_size=1022).launch(share=True, quiet=True)
     else:
-        app.queue(concurrency_count=511, max_size=1022).launch(
-            server_name="0.0.0.0",
-            inbrowser=not config.noautoopen,
-            server_port=config.listen_port,
-            quiet=True,
-        )
+        app.queue(concurrency_count=511, max_size=1022).launch(share=False, quiet=True)
 #endregion
