@@ -198,7 +198,6 @@ for root, dirs, files in os.walk(index_root, topdown=False):
 def vc_single(
     input_audio_path,
 ):
-    print('---------------------vc_single-----------------------')
     global tgt_sr, net_g, vc, hubert_model, version
     if input_audio_path is None:
         return "You need to upload an audio", None
@@ -211,9 +210,7 @@ def vc_single(
         if hubert_model == None:
             load_hubert()
         if_f0 = cpt.get("f0", 1)
-        print('-------------------------------')
         file_index = get_index()
-        print(file_index)
         file_index = (
             (
                 file_index.strip(" ")
@@ -469,53 +466,50 @@ with gr.Blocks(theme=gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍♀�
 
     gr.HTML("<h2>Comece aqui!</h2>")
     with gr.Tabs():        
-        with gr.TabItem("Inference"):
-            with gr.Row():
-                sid0 = gr.Dropdown(label="1.Choose your Model.", choices=sorted(names), value=check_for_name())
-                refresh_button = gr.Button("Refresh", variant="primary")
-                if check_for_name() != '':
-                    get_vc(sorted(names)[0])
-                sid0.change(
-                    fn=get_vc,
-                    inputs=[sid0],
-                    outputs=[],
-                )
-                but0 = gr.Button("Convert", variant="primary")
-            with gr.Row():
+        with gr.TabItem("Inferência"):
+            with gr.Row().style(equal_height=True):
                 with gr.Column():
                     with gr.Row():
+                        sid0 = gr.Dropdown(label="1.Choose your Model.", choices=sorted(names), value=check_for_name())
+                        if check_for_name() != '':
+                            get_vc(sorted(names)[0])
+                        sid0.change(
+                            fn=get_vc,
+                            inputs=[sid0],
+                            outputs=[],
+                        )
+                    with gr.Group():
+                        gr.HTML("<p>2. Adicione um arquivo de áudio</p>", elem_classes="padding")
+                        yt_link_textbox = gr.Textbox(label="Insira um link para uma música no Youtube:")
                         dropbox = gr.File(label="Drop your audio here & hit the Reload button.")
-                    with gr.Row():
                         record_button=gr.Audio(source="microphone", label="OR Record audio.", type="filepath")
+                        
+                with gr.Column():
                     with gr.Row():
                         input_audio0 = gr.Dropdown(
                             label="2.Choose your audio.",
                             value="",
                             choices=audio_files
-                            )
+                        )
+                        refresh_button = gr.Button("Refresh", variant="primary")
+                        # Events
                         dropbox.upload(fn=save_to_wav2, inputs=[dropbox], outputs=[input_audio0])
                         dropbox.upload(fn=change_choices2, inputs=[], outputs=[input_audio0])
-                        refresh_button2 = gr.Button("Refresh", variant="primary", size='sm')
-                        refresh_button.click(fn=update_dropdowns, inputs=[], outputs=[sid0, input_audio0])
                         record_button.change(fn=save_to_wav, inputs=[record_button], outputs=[input_audio0])
                         record_button.change(fn=change_choices2, inputs=[], outputs=[input_audio0])
-                with gr.Column():
-                    ###---
-                    vc_output2 = gr.Audio(
-                        label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
-                        type='filepath',
-                        interactive=False,
-                    )
-                    vc_output1 = gr.Textbox("")
-                    ###-----
-            with gr.Row():               
-                but0.click(
-                    vc_single,
-                    [
-                        input_audio0,
-                    ],
-                    [vc_output1, vc_output2],
-                )
+                        refresh_button.click(fn=update_dropdowns, inputs=[], outputs=[sid0, input_audio0])
+                    selected_audio = gr.Audio(label="Áudio selecionado", interactive=False)
+                    separate_checkbox = gr.Checkbox(label="Separar vocais e instrumental", 
+                                                    info="Se os vocais não estiverem isolados no áudio selecionado, ative esta opção. Os vocais serão extraídos durante a conversão e depois reintegrados ao áudio final com os instrumentais.")
+                    but0 = gr.Button("Convert", variant="primary")
+                    with gr.Group():
+                        vc_output2 = gr.Audio(
+                            label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
+                            type='filepath',
+                            interactive=False,
+                        )
+                        vc_output1 = gr.Textbox("")           
+                        but0.click(vc_single, [input_audio0,], [vc_output1, vc_output2],)
                         
         with gr.TabItem("Download Model"):
             with gr.Row():
