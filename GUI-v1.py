@@ -428,6 +428,14 @@ def download_from_url(url, model):
     except:
         return "There's been an error."
 
+def download_from_youtube(url):
+    if url == '':
+        pass
+    filename = subprocess.getoutput(f'yt-dlp --print filename {url} --format m4a -o "./audios/%(title)s.%(ext)s"')
+    subprocess.getoutput(f'yt-dlp {url} --format m4a -o "./audios/%(title)s.%(ext)s"')
+    if os.path.exists(filename[1:]):
+        return filename
+
 css = """
 .padding {padding-left: 15px; padding-top: 5px;}
 """
@@ -454,6 +462,7 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
                         )
                     gr.HTML("<p>2. Adicione um arquivo de áudio</p>", elem_classes="padding")
                     yt_link_textbox = gr.Textbox(label="Insira um link para uma música no Youtube:")
+                    download_yt_button = gr.Button("Baixar áudio do vídeo")
                     dropbox = gr.File(label="OU selecione um arquivo:")
                     record_button = gr.Audio(source="microphone", label="OR grave o áudio:", type="filepath")
                         
@@ -467,6 +476,7 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
                         )
                         refresh_button = gr.Button("Atualizar listas de vozes e áudios", variant="primary", scale=0)
                         # Events
+                        download_yt_button.click(fn=download_from_youtube, inputs=[yt_link_textbox], outputs=[audio_dropdown])
                         dropbox.upload(fn=save_to_wav2, inputs=[dropbox], outputs=[audio_dropdown])
                         dropbox.upload(fn=change_choices2, inputs=[], outputs=[audio_dropdown])
                         record_button.change(fn=save_to_wav, inputs=[record_button], outputs=[audio_dropdown])
