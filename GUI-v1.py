@@ -17,6 +17,18 @@ os.environ["TEMP"] = tmp
 warnings.filterwarnings("ignore")
 torch.manual_seed(114514)
 from i18n import I18nAuto
+from lib.infer_pack.models import (
+    SynthesizerTrnMs256NSFsid,
+    SynthesizerTrnMs256NSFsid_nono,
+    SynthesizerTrnMs768NSFsid,
+    SynthesizerTrnMs768NSFsid_nono,
+)
+import soundfile as sf
+from fairseq import checkpoint_utils
+import gradio as gr
+import logging
+from vc_infer_pipeline import VC
+from config import Config
 
 from utils import load_audio, CSVutil
 
@@ -32,6 +44,12 @@ resample_sr = 1
 rms_mix_rate = 0.21
 protect = 0.33
 index_rate = 0.66
+
+sr_dict = {
+    "32k": 32000,
+    "40k": 40000,
+    "48k": 48000,
+}
 
 # essa parte excluir dps
 if not os.path.isdir('csvdb/'):
@@ -150,21 +168,8 @@ else:
     gpu_info = i18n("很遗憾您这没有能用的显卡来支持您训练")
     default_batch_size = 1
 gpus = "-".join([i[0] for i in gpu_infos])
-from lib.infer_pack.models import (
-    SynthesizerTrnMs256NSFsid,
-    SynthesizerTrnMs256NSFsid_nono,
-    SynthesizerTrnMs768NSFsid,
-    SynthesizerTrnMs768NSFsid_nono,
-)
-import soundfile as sf
-from fairseq import checkpoint_utils
-import gradio as gr
-import logging
-from vc_infer_pipeline import VC
-from config import Config
 
 config = Config()
-# from trainset_preprocess_pipeline import PreProcess
 logging.getLogger("numba").setLevel(logging.WARNING)
 
 hubert_model = None
@@ -331,37 +336,6 @@ def change_choices():
                 index_paths.append("%s/%s" % (root, name))
     return {"choices": sorted(names), "__type__": "update"}
 
-def clean():
-    return {"value": "", "__type__": "update"}
-
-sr_dict = {
-    "32k": 32000,
-    "40k": 40000,
-    "48k": 48000,
-}
-
-def if_done(done, p):
-    while 1:
-        if p.poll() == None:
-            sleep(0.5)
-        else:
-            break
-    done[0] = True
-
-def if_done_multi(done, ps):
-    while 1:
-        # poll==None代表进程未结束
-        # 只要有一个进程未结束都不停
-        flag = 1
-        for p in ps:
-            if p.poll() == None:
-                flag = 0
-                sleep(0.5)
-                break
-        if flag == 1:
-            break
-    done[0] = True
-
 def update_dropdowns():
     return [change_choices(), change_choices2()]
 
@@ -458,7 +432,7 @@ css = """
 .padding {padding-left: 15px; padding-top: 5px;}
 """
 
-with gr.Blocks(theme=gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍♀️", css=css) as app:
+with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍♀️", css=css) as app:
     gr.HTML("<h1>Vocais da Loirinha 👱🏻‍♀️</h1>")
 
     gr.HTML("<h2>Como usar?</h2>")
@@ -470,56 +444,53 @@ with gr.Blocks(theme=gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍♀�
             with gr.Row().style(equal_height=True):
                 with gr.Column():
                     with gr.Row():
-                        sid0 = gr.Dropdown(label="1.Choose your Model.", choices=sorted(names), value=check_for_name())
+                        model_dropdown = gr.Dropdown(label="1. Escolha a voz:", choices=sorted(names), value=check_for_name())
                         if check_for_name() != '':
                             get_vc(sorted(names)[0])
-                        sid0.change(
+                        model_dropdown.change(
                             fn=get_vc,
-                            inputs=[sid0],
+                            inputs=[model_dropdown],
                             outputs=[],
                         )
-                    with gr.Group():
-                        gr.HTML("<p>2. Adicione um arquivo de áudio</p>", elem_classes="padding")
-                        yt_link_textbox = gr.Textbox(label="Insira um link para uma música no Youtube:")
-                        dropbox = gr.File(label="Drop your audio here & hit the Reload button.")
-                        record_button=gr.Audio(source="microphone", label="OR Record audio.", type="filepath")
+                    gr.HTML("<p>2. Adicione um arquivo de áudio</p>", elem_classes="padding")
+                    yt_link_textbox = gr.Textbox(label="Insira um link para uma música no Youtube:")
+                    dropbox = gr.File(label="OU selecione um arquivo:")
+                    record_button = gr.Audio(source="microphone", label="OR grave o áudio:", type="filepath")
                         
                 with gr.Column():
                     with gr.Row():
-                        input_audio0 = gr.Dropdown(
-                            label="2.Choose your audio.",
+                        audio_dropdown = gr.Dropdown(
+                            label="3. Escolha o áudio",
                             value="",
-                            choices=audio_files
+                            choices=audio_files,
+                            scale=1
                         )
-                        refresh_button = gr.Button("Refresh", variant="primary")
+                        refresh_button = gr.Button("Atualizar listas de vozes e áudios", variant="primary", scale=0)
                         # Events
-                        dropbox.upload(fn=save_to_wav2, inputs=[dropbox], outputs=[input_audio0])
-                        dropbox.upload(fn=change_choices2, inputs=[], outputs=[input_audio0])
-                        record_button.change(fn=save_to_wav, inputs=[record_button], outputs=[input_audio0])
-                        record_button.change(fn=change_choices2, inputs=[], outputs=[input_audio0])
-                        refresh_button.click(fn=update_dropdowns, inputs=[], outputs=[sid0, input_audio0])
+                        dropbox.upload(fn=save_to_wav2, inputs=[dropbox], outputs=[audio_dropdown])
+                        dropbox.upload(fn=change_choices2, inputs=[], outputs=[audio_dropdown])
+                        record_button.change(fn=save_to_wav, inputs=[record_button], outputs=[audio_dropdown])
+                        record_button.change(fn=change_choices2, inputs=[], outputs=[audio_dropdown])
+                        refresh_button.click(fn=update_dropdowns, inputs=[], outputs=[model_dropdown, audio_dropdown])
                     selected_audio = gr.Audio(label="Áudio selecionado", interactive=False)
                     separate_checkbox = gr.Checkbox(label="Separar vocais e instrumental", 
                                                     info="Se os vocais não estiverem isolados no áudio selecionado, ative esta opção. Os vocais serão extraídos durante a conversão e depois reintegrados ao áudio final com os instrumentais.")
-                    but0 = gr.Button("Convert", variant="primary")
-                    with gr.Group():
-                        vc_output2 = gr.Audio(
-                            label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
-                            type='filepath',
-                            interactive=False,
-                        )
-                        vc_output1 = gr.Textbox("")           
-                        but0.click(vc_single, [input_audio0,], [vc_output1, vc_output2],)
+                    convert_button = gr.Button("Convert", variant="primary")
+                    output_audio = gr.Audio(
+                        label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
+                        type='filepath',
+                        interactive=False,
+                    )
+                    output_audio_textbox = gr.Textbox(label="Resultado", interactive=False, placeholder="Nenhum áudio gerado.")           
+                    convert_button.click(vc_single, [audio_dropdown], [output_audio_textbox, output_audio])
                         
-        with gr.TabItem("Download Model"):
-            with gr.Row():
-                url=gr.Textbox(label="Enter the URL to the Model:")
-            with gr.Row():
-                model = gr.Textbox(label="Name your model:")
-                download_button=gr.Button("Download")
-            with gr.Row():
-                status_bar=gr.Textbox(label="")
-                download_button.click(fn=download_from_url, inputs=[url, model], outputs=[status_bar])
+        with gr.TabItem("Adicione uma voz"):
+            with gr.Column():
+                model_link_textbox = gr.Textbox(label="1. Insira o link para o modelo:", info="A URL inserida deve ser o link para o download de um arquivo zip que contém o arquivo .pth. Pode ser um link do Google Drive, Mega ou Hugging Face.")
+                model_name_textbox = gr.Textbox(label="2. Escolha um nome para identificar o modelo:", info="Esse nome deve ser diferente do nome dos modelos (vozes) já existentes!")
+                download_button = gr.Button("Baixar modelo")
+                output_download_textbox = gr.Textbox(label="Resultado", interactive=False, placeholder="Nenhum modelo baixado.")
+                download_button.click(fn=download_from_url, inputs=[model_link_textbox, model_name_textbox], outputs=[output_download_textbox])
             with gr.Row():
                 gr.Markdown(
                 """
