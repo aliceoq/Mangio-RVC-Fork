@@ -31,6 +31,7 @@ from vc_infer_pipeline import VC
 from config import Config
 
 from utils import load_audio, CSVutil
+from spleeter.separator import Separator
 
 DoFormant = False
 Quefrency = 1.0
@@ -202,11 +203,19 @@ for root, dirs, files in os.walk(index_root, topdown=False):
 
 def vc_single(
     input_audio_path,
+    separate_vocals_bool
 ):
+    print('------------vc_single-------------')
     global tgt_sr, net_g, vc, hubert_model, version
     if input_audio_path is None:
         return "You need to upload an audio", None
     try:
+        print(separate_vocals_bool)
+        if (separate_vocals_bool):
+            path_to_separated_vocals = separate_vocals(input_audio_path)
+            if (path_to_separated_vocals):
+                print('fez isso')
+                input_audio_path = path_to_separated_vocals
         audio = load_audio(input_audio_path, 16000, DoFormant, Quefrency, Timbre)
         audio_max = np.abs(audio).max() / 0.95
         if audio_max > 1:
@@ -433,8 +442,23 @@ def download_from_youtube(url):
         pass
     filename = subprocess.getoutput(f'yt-dlp --print filename {url} --format m4a -o "./audios/%(title)s.%(ext)s"')
     subprocess.getoutput(f'yt-dlp {url} --format m4a -o "./audios/%(title)s.%(ext)s"')
-    if os.path.exists(filename[1:]):
+    if os.path.exists(filename):
         return filename
+
+def separate_vocals(audio_path):
+    print('----------------separate_vocals----------------')
+    print(os.path.exists(audio_path), audio_path[9:-4])
+    if (os.path.exists(audio_path) and audio_path[9:-4]):
+        print('existe path')
+        directory = f'./audios/separated/'
+        separator = Separator('spleeter:2stems')
+        separator.separate_to_file(audio_path, directory)
+        if (f'{directory}/vocals.wav'):
+            print('ok separou')
+            return f'{directory}/{audio_path[9:-4]}/vocals.wav'
+    else:
+        print('nao existe path')
+        return ''
 
 css = """
 .padding {padding-left: 15px; padding-top: 5px;}
@@ -492,7 +516,7 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
                         interactive=False,
                     )
                     output_audio_textbox = gr.Textbox(label="Resultado", interactive=False, placeholder="Nenhum áudio gerado.")           
-                    convert_button.click(vc_single, [audio_dropdown], [output_audio_textbox, output_audio])
+                    convert_button.click(vc_single, [audio_dropdown, separate_checkbox], [output_audio_textbox, output_audio])
                         
         with gr.TabItem("Adicione uma voz"):
             with gr.Column():
