@@ -202,9 +202,10 @@ for root, dirs, files in os.walk(index_root, topdown=False):
             index_paths.append("%s/%s" % (root, name))
 
 def vc_single(
-    input_audio_path,
+    input_audio,
     separate_vocals_bool
 ):
+    input_audio_path = input_audio
     print('------------vc_single-------------')
     global tgt_sr, net_g, vc, hubert_model, version
     if input_audio_path is None:
@@ -213,9 +214,11 @@ def vc_single(
         print(separate_vocals_bool)
         if (separate_vocals_bool):
             path_to_separated_vocals = separate_vocals(input_audio_path)
+            print('path_to_separated_vocals', path_to_separated_vocals)
             if (path_to_separated_vocals):
                 print('fez isso')
                 input_audio_path = path_to_separated_vocals
+        print('input_audio_path', input_audio_path)
         audio = load_audio(input_audio_path, 16000, DoFormant, Quefrency, Timbre)
         audio_max = np.abs(audio).max() / 0.95
         if audio_max > 1:
@@ -453,7 +456,7 @@ def separate_vocals(audio_path):
         directory = f'./audios/separated/'
         separator = Separator('spleeter:2stems')
         separator.separate_to_file(audio_path, directory)
-        if (f'{directory}/vocals.wav'):
+        if os.path.exists(f'{directory}/{audio_path[9:-4]}/vocals.wav'):
             print('ok separou')
             return f'{directory}/{audio_path[9:-4]}/vocals.wav'
     else:
