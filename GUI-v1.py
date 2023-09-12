@@ -31,7 +31,7 @@ from vc_infer_pipeline import VC
 from config import Config
 
 from utils import load_audio, CSVutil
-from spleeter.separator import Separator
+import demucs.separate
 
 DoFormant = False
 Quefrency = 1.0
@@ -448,20 +448,26 @@ def download_from_youtube(url):
     if os.path.exists(filename):
         return filename
 
+def find_vocals(root_directory, target_folder_name, file_name='vocals.wav'):
+    for root, dirs, files in os.walk(root_directory):
+        if target_folder_name in dirs:
+            folder_path = os.path.join(root, target_folder_name)
+            vocals_path = os.path.join(folder_path, file_name)
+            if os.path.exists(vocals_path):
+                return vocals_path
+    return None
+
 def separate_vocals(audio_path):
     print('----------------separate_vocals----------------')
-    print(os.path.exists(audio_path), audio_path[9:-4])
-    if (os.path.exists(audio_path) and audio_path[9:-4]):
-        print('existe path')
-        directory = f'./audios/separated'
-        separator = Separator('spleeter:2stems')
-        separator.separate_to_file(audio_path, directory)
-        if os.path.exists(f'{directory}/{audio_path[9:-4]}/vocals.wav'):
-            print('ok separou')
-            return f'{directory}/{audio_path[9:-4]}/vocals.wav'
-    else:
-        print('nao existe path')
-        return ''
+    audio_name = audio_path[9:-4]
+    if (os.path.exists(audio_path) and audio_name):
+        demucs.separate.main(["--two-stems", "vocals", audio_path, "-o", './audios'])
+        vocals_path = find_vocals('./audios', audio_name)
+        if vocals_path:
+            print('audio separado')
+            return vocals_path
+    print('audio nao foi separado')
+    return None
 
 css = """
 .padding {padding-left: 15px; padding-top: 5px;}
@@ -512,8 +518,8 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
                     selected_audio = gr.Audio(label="Áudio selecionado", interactive=False)
                     separate_checkbox = gr.Checkbox(label="Separar vocais e instrumental", 
                                                     info="Se os vocais não estiverem isolados no áudio selecionado, ative esta opção. Os vocais serão extraídos durante a conversão e depois reintegrados ao áudio final com os instrumentais.")
-                    separate_button = gr.Button("DEBUG: separar vocais")
-                    separate_button.click(fn=separate_vocals, inputs=[audio_dropdown])
+                    #separate_button = gr.Button("DEBUG: separar vocais")
+                    #separate_button.click(fn=separate_vocals, inputs=[audio_dropdown])
                     convert_button = gr.Button("Convert", variant="primary")
                     output_audio = gr.Audio(
                         label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
