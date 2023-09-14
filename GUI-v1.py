@@ -32,6 +32,7 @@ from config import Config
 
 from utils import load_audio, CSVutil
 import demucs.separate
+import audiosegment
 
 DoFormant = False
 Quefrency = 1.0
@@ -205,6 +206,7 @@ def vc_single(
     input_audio,
     separate_vocals_bool
 ):
+    overlay_audios_bool = False
     input_audio_path = input_audio
     print('------------vc_single-------------')
     global tgt_sr, net_g, vc, hubert_model, version
@@ -216,8 +218,8 @@ def vc_single(
             path_to_separated_vocals = separate_vocals(input_audio_path)
             print('path_to_separated_vocals', path_to_separated_vocals)
             if (path_to_separated_vocals):
-                print('fez isso')
                 input_audio_path = path_to_separated_vocals
+                overlay_audios_bool = True
         print('input_audio_path', input_audio_path)
         audio = load_audio(input_audio_path, 16000, DoFormant, Quefrency, Timbre)
         audio_max = np.abs(audio).max() / 0.95
@@ -266,6 +268,11 @@ def vc_single(
             if os.path.exists(file_index)
             else "Index not used."
         )
+        print('aaaaaaaaaaaaaaaaaaaaaa')
+        if (overlay_audios_bool):
+            print('overlay-audios')
+            (tgt_sr, audio_opt) = overlay_audios(tgt_sr, audio_opt, input_audio_path.replace("vocals", "no_vocals"))
+            remove_separated_files(input_audio_path)
         return "Success.\n %s\nTime:\n npy:%ss, f0:%ss, infer:%ss" % (
             index_info,
             times[0],
@@ -468,6 +475,30 @@ def separate_vocals(audio_path):
             return vocals_path
     print('audio nao foi separado')
     return None
+
+# aqui ainda não tá 100%
+def overlay_audios(sample_rate, np_array, accompaniment_path):
+    print('---------overlay_audios-----------')
+    if (not os.path.exists(accompaniment_path)):
+        print('nao existe')
+        return (sample_rate, np_array)
+    
+    sound1 = audiosegment.from_numpy_array(np_array, sample_rate)
+    sound2 = audiosegment.from_file(accompaniment_path)
+    overlay = sound1.overlay(sound2, position=0)
+    print(overlay)
+    return (overlay.frame_rate, overlay.to_numpy_array())
+
+def remove_separated_files(vocals_path):
+    parent_dir = os.path.dirname(vocals_path)
+    try:
+        shutil.rmtree(parent_dir)
+        print(f"Deleted {parent_dir} folder and its contents")
+    except FileNotFoundError:
+        print(f"{parent_dir} folder not found")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+
 
 css = """
 .padding {padding-left: 15px; padding-top: 5px;}
