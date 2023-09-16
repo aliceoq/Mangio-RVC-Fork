@@ -2,7 +2,7 @@ import subprocess, torch, os, traceback, sys, warnings, shutil, numpy as np
 from mega import Mega
 os.environ["no_proxy"] = "localhost, 127.0.0.1, ::1"
 import threading
-from time import sleep
+from time import time
 from subprocess import Popen
 import datetime, requests
 now_dir = os.getcwd()
@@ -204,28 +204,32 @@ for root, dirs, files in os.walk(index_root, topdown=False):
 
 def vc_single(
     input_audio,
-    separate_vocals_bool
+    separate_vocals_bool,
+    progress = gr.Progress()
 ):
+    progress(0, desc="Preparando áudio...")
     overlay_audios_bool = False
     input_audio_path = input_audio
-    print('------------vc_single-------------')
     global tgt_sr, net_g, vc, hubert_model, version
     if input_audio_path is None:
         return "You need to upload an audio", None
     try:
-        print(separate_vocals_bool)
+        t1 = 0
+        t2 = 0
         if (separate_vocals_bool):
+            t1 = time()
+            progress(0.1, desc="Separando vocais...")
             path_to_separated_vocals = separate_vocals(input_audio_path)
-            print('path_to_separated_vocals', path_to_separated_vocals)
             if (path_to_separated_vocals):
                 input_audio_path = path_to_separated_vocals
                 overlay_audios_bool = True
-        print('input_audio_path', input_audio_path)
+            t2 = time()
+        progress(0.2, desc="Carregando áudio...")
         audio = load_audio(input_audio_path, 16000, DoFormant, Quefrency, Timbre)
         audio_max = np.abs(audio).max() / 0.95
         if audio_max > 1:
             audio /= audio_max
-        times = [0, 0, 0]
+        times = [0, 0, 0, t2 - t1, 0]
         if hubert_model == None:
             load_hubert()
         if_f0 = cpt.get("f0", 1)
@@ -240,6 +244,7 @@ def vc_single(
                 .replace("trained", "added")
             )
         )
+        progress(0.3, desc="Gerando áudio...")
         audio_opt = vc.pipeline(
             hubert_model,
             net_g,
@@ -259,26 +264,22 @@ def vc_single(
             version,
             protect,
             crepe_hop_length,
+            progress,
             f0_file=None,
         )
+        progress(0.8, desc="Áudio convertido...")
         if resample_sr >= 16000 and tgt_sr != resample_sr:
             tgt_sr = resample_sr
-        index_info = (
-            "Using index:%s." % file_index
-            if os.path.exists(file_index)
-            else "Index not used."
-        )
-        print('aaaaaaaaaaaaaaaaaaaaaa')
         if (overlay_audios_bool):
-            print('overlay-audios')
+            t1 = time()
+            progress(0.9, desc="Juntando vocal e instrumental...")
             (tgt_sr, audio_opt) = overlay_audios(tgt_sr, audio_opt, input_audio_path.replace("vocals", "no_vocals"))
             remove_separated_files(input_audio_path)
-        return "Success.\n %s\nTime:\n npy:%ss, f0:%ss, infer:%ss" % (
-            index_info,
-            times[0],
-            times[1],
-            times[2],
-        ), (tgt_sr, audio_opt)
+            t2 = time()
+        times[4] = t2 - t1
+        return {"visible": True, "__type__": "update", "value": "Áudio convertido com sucesso!\nTempo: %1fs" % (
+            sum(times),
+        )}, (tgt_sr, audio_opt)
     except:
         info = traceback.format_exc()
         print(info)
@@ -288,13 +289,12 @@ def get_vc(sid):
     global n_spk, tgt_sr, net_g, vc, cpt, version
     if sid == "" or sid == []:
         global hubert_model
-        if hubert_model != None:  # 考虑到轮询, 需要加个判断看是否 sid 是由有模型切换到无模型的
+        if hubert_model != None:
             print("clean_empty_cache")
             del net_g, n_spk, vc, hubert_model, tgt_sr  # ,cpt
             hubert_model = net_g = n_spk = vc = hubert_model = tgt_sr = None
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            ###楼下不这么折腾清理不干净
             if_f0 = cpt.get("f0", 1)
             version = cpt.get("version", "v1")
             if version == "v1":
@@ -465,28 +465,21 @@ def find_vocals(root_directory, target_folder_name, file_name='vocals.wav'):
     return None
 
 def separate_vocals(audio_path):
-    print('----------------separate_vocals----------------')
     audio_name = audio_path[9:-4]
     if (os.path.exists(audio_path) and audio_name):
         demucs.separate.main(["--two-stems", "vocals", audio_path, "-o", './audios'])
         vocals_path = find_vocals('./audios', audio_name)
         if vocals_path:
-            print('audio separado')
             return vocals_path
-    print('audio nao foi separado')
     return None
 
 # aqui ainda não tá 100%
 def overlay_audios(sample_rate, np_array, accompaniment_path):
-    print('---------overlay_audios-----------')
     if (not os.path.exists(accompaniment_path)):
-        print('nao existe')
         return (sample_rate, np_array)
-    
     sound1 = audiosegment.from_numpy_array(np_array, sample_rate)
     sound2 = audiosegment.from_file(accompaniment_path)
     overlay = sound1.overlay(sound2, position=0)
-    print(overlay)
     return (overlay.frame_rate, overlay.to_numpy_array())
 
 def remove_separated_files(vocals_path):
@@ -499,6 +492,11 @@ def remove_separated_files(vocals_path):
     except Exception as e:
         print(f"An error occurred: {str(e)}")
 
+def hide_output_text():
+    return {"visible": False, "__type__": "update", "value": ""}
+
+def show_selected_audio(input_audio_path):
+    return input_audio_path
 
 css = """
 .padding {padding-left: 15px; padding-top: 5px;}
@@ -516,7 +514,7 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
             with gr.Row().style(equal_height=True):
                 with gr.Column():
                     with gr.Row():
-                        model_dropdown = gr.Dropdown(label="1. Escolha a voz:", choices=sorted(names), value=check_for_name())
+                        model_dropdown = gr.Dropdown(label="1. Selecione a voz:", choices=sorted(names), value=check_for_name())
                         if check_for_name() != '':
                             get_vc(sorted(names)[0])
                         model_dropdown.change(
@@ -528,12 +526,12 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
                     yt_link_textbox = gr.Textbox(label="Insira um link para uma música no Youtube:")
                     download_yt_button = gr.Button("Baixar áudio do vídeo")
                     dropbox = gr.File(label="OU selecione um arquivo:")
-                    record_button = gr.Audio(source="microphone", label="OR grave o áudio:", type="filepath")
+                    record_button = gr.Audio(source="microphone", label="OU grave o áudio:", type="filepath")
                         
                 with gr.Column():
                     with gr.Row():
                         audio_dropdown = gr.Dropdown(
-                            label="3. Escolha o áudio",
+                            label="3. Selecione o áudio",
                             value="",
                             choices=audio_files,
                             scale=1
@@ -547,18 +545,17 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
                         record_button.change(fn=change_choices2, inputs=[], outputs=[audio_dropdown])
                         refresh_button.click(fn=update_dropdowns, inputs=[], outputs=[model_dropdown, audio_dropdown])
                     selected_audio = gr.Audio(label="Áudio selecionado", interactive=False)
+                    audio_dropdown.select(show_selected_audio, inputs=[audio_dropdown], outputs=[selected_audio])
                     separate_checkbox = gr.Checkbox(label="Separar vocais e instrumental", 
-                                                    info="Se os vocais não estiverem isolados no áudio selecionado, ative esta opção. Os vocais serão extraídos durante a conversão e depois reintegrados ao áudio final com os instrumentais.")
-                    #separate_button = gr.Button("DEBUG: separar vocais")
-                    #separate_button.click(fn=separate_vocals, inputs=[audio_dropdown])
-                    convert_button = gr.Button("Convert", variant="primary")
+                                                    info="Marque esta opção quando o áudio selecionado NÃO tiver a voz isolada. Os vocais serão extraídos para a conversão e depois reintegrados ao áudio final com os instrumentais. ⚠️ O tempo de conversão pode aumentar significamente com essa opção ativada.")
+                    convert_button = gr.Button("Gerar áudio", variant="primary")
                     output_audio = gr.Audio(
-                        label="Output Audio (Click on the Three Dots in the Right Corner to Download)",
+                        label="Áudio convertido (Clique nos três pontos para fazer o download)",
                         type='filepath',
                         interactive=False,
                     )
-                    output_audio_textbox = gr.Textbox(label="Resultado", interactive=False, placeholder="Nenhum áudio gerado.")           
-                    convert_button.click(vc_single, [audio_dropdown, separate_checkbox], [output_audio_textbox, output_audio])
+                    output_audio_textbox = gr.Textbox(label="Resultado", interactive=False, visible=True, placeholder="Nenhum áudio gerado.")           
+                    convert_button.click(hide_output_text, outputs=[output_audio_textbox]).then(vc_single, [audio_dropdown, separate_checkbox], [output_audio_textbox, output_audio])
                         
         with gr.TabItem("Adicione uma voz"):
             with gr.Column():
