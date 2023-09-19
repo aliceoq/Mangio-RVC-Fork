@@ -259,7 +259,7 @@ def vc_single(
             index_rate,
             if_f0,
             filter_radius,
-            tgt_sr,
+            40000,
             resample_sr,
             rms_mix_rate,
             version,
@@ -274,7 +274,7 @@ def vc_single(
         if (overlay_audios_bool):
             t1 = time()
             progress(0.9, desc="Juntando vocal e instrumental...")
-            (tgt_sr, audio_opt) = overlay_audios(tgt_sr, audio_opt, input_audio_path.replace("vocals", "no_vocals"))
+            (tgt_sr, audio_opt) = overlay_audios(40000, audio_opt, input_audio_path.replace("vocals", "no_vocals"))
             remove_separated_files(input_audio_path)
             t2 = time()
         times[4] = t2 - t1
@@ -478,7 +478,6 @@ def pydub_to_np(audio):
     return audio.frame_rate, np.array(audio.get_array_of_samples(), dtype=np.float32).reshape((-1, audio.channels)) / (
             1 << (8 * audio.sample_width - 1))
 
-# aqui ainda não tá 100%
 def overlay_audios(sample_rate, np_array, accompaniment_path):
     if (not os.path.exists(accompaniment_path)):
         return (sample_rate, np_array)
@@ -490,7 +489,6 @@ def overlay_audios(sample_rate, np_array, accompaniment_path):
     sound2 = AudioSegment.from_file(converted_vocals_path)
 
     combined = sound2.overlay(sound1)
-    combined.export('./audios/combined.wav', format='wav') #debug
     sample_rate, np_array = pydub_to_np(combined)
     return (sample_rate, np_array)
 
