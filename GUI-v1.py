@@ -564,7 +564,7 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
                         
         with gr.TabItem("Adicione uma voz"):
             with gr.Column():
-                model_link_textbox = gr.Textbox(label="1. Insira o link para o modelo:", info="A URL inserida deve ser o link para o download de um arquivo zip que contém o arquivo .pth. Pode ser um link do Google Drive, Mega ou Hugging Face.")
+                model_link_textbox = gr.Textbox(label="1. Insira o link para o modelo:", info="A URL inserida deve ser o link no Hugging Face para o download de um arquivo zip que contém o arquivo .pth. Como por exemplo: https://huggingface.co/yaya2169/folkloretaylor/resolve/main/folkloretaylor.zip")
                 model_name_textbox = gr.Textbox(label="2. Escolha um nome para identificar o modelo:", info="Esse nome deve ser diferente do nome dos modelos (vozes) já existentes!")
                 download_button = gr.Button("Baixar modelo")
                 output_download_textbox = gr.Textbox(label="Resultado", interactive=False, placeholder="Nenhum modelo baixado.")
