@@ -514,11 +514,6 @@ css = """
 
 with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍♀️", css=css) as app:
     gr.HTML("<h1>Vocais da Loirinha 👱🏻‍♀️</h1>")
-
-    gr.HTML("<h2>Como usar?</h2>")
-    gr.Markdown("""Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus et volutpat eros. Nunc id magna vel ligula blandit ullamcorper. Proin commodo tincidunt gravida. Morbi posuere, lorem eu ornare auctor, dolor est volutpat eros, sed aliquet justo mi eu ligula. Maecenas convallis risus metus, at convallis ex gravida in. Suspendisse varius libero nec tellus placerat vulputate. Quisque ornare enim sed tristique ultrices.""")
-
-    gr.HTML("<h2>Comece aqui!</h2>")
     with gr.Tabs():        
         with gr.TabItem("Inferência"):
             with gr.Row().style(equal_height=True):
