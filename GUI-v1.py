@@ -32,7 +32,8 @@ from config import Config
 
 from utils import load_audio, CSVutil
 import demucs.separate
-import audiosegment
+import scipy.io.wavfile as wav
+from pydub import AudioSegment
 
 DoFormant = False
 Quefrency = 1.0
@@ -473,14 +474,25 @@ def separate_vocals(audio_path):
             return vocals_path
     return None
 
+def pydub_to_np(audio):
+    return audio.frame_rate, np.array(audio.get_array_of_samples(), dtype=np.float32).reshape((-1, audio.channels)) / (
+            1 << (8 * audio.sample_width - 1))
+
 # aqui ainda não tá 100%
 def overlay_audios(sample_rate, np_array, accompaniment_path):
     if (not os.path.exists(accompaniment_path)):
         return (sample_rate, np_array)
-    sound1 = audiosegment.from_numpy_array(np_array, sample_rate)
-    sound2 = audiosegment.from_file(accompaniment_path)
-    overlay = sound1.overlay(sound2, position=0)
-    return (overlay.frame_rate, overlay.to_numpy_array())
+    
+    converted_vocals_path = accompaniment_path.replace('no_vocals', 'converted_vocals')
+    wav.write(converted_vocals_path, sample_rate, np_array)
+
+    sound1 = AudioSegment.from_file(accompaniment_path)
+    sound2 = AudioSegment.from_file(converted_vocals_path)
+
+    combined = sound2.overlay(sound1)
+    combined.export('./audios/combined.wav', format='wav') #debug
+    sample_rate, np_array = pydub_to_np(combined)
+    return (sample_rate, np_array)
 
 def remove_separated_files(vocals_path):
     parent_dir = os.path.dirname(vocals_path)
