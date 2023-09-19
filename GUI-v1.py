@@ -514,6 +514,7 @@ css = """
 
 with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍♀️", css=css) as app:
     gr.HTML("<h1>Vocais da Loirinha 👱🏻‍♀️</h1>")
+    gr.Markdown("""[Repositório no Github](https://github.com/aliceoq/Mangio-RVC-Fork/tree/feat/new-gui) - [Colab](https://colab.research.google.com/drive/1FeIVwiOY2NApKtqlTtMfQGBBmWnZ7pz1?usp=sharing) - [Hugging Face Space](https://huggingface.co/spaces/aliceoq/vozes-da-loirinha)""")
     with gr.Tabs():        
         with gr.TabItem("Inferência"):
             with gr.Row().style(equal_height=True):
@@ -572,10 +573,10 @@ with gr.Blocks(theme = gr.themes.Base(), title="Vocais da Loirinha 👱🏻‍�
             with gr.Row():
                 gr.Markdown(
                 """
-                Original RVC:https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI
-                Mangio's RVC Fork:https://github.com/Mangio621/Mangio-RVC-Fork
-                ❤️ If you like the EasyGUI, help me keep it.❤️ 
-                https://paypal.me/lesantillan
+                Original RVC: https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI
+                Mangio's RVC Fork: https://github.com/Mangio621/Mangio-RVC-Fork
+                Easy GUI: https://paypal.me/lesantillan
+                Made with ❤️ by [Alice Oliveira](https://github.com/aliceoq) | Hosted with ❤️ by [Mateus Elias](https://github.com/mateuseap)
                 """
                 )
     
